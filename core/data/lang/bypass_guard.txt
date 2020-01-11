@@ -1,0 +1,11 @@
+[ru]
+BG__KICK_REASON_ACCESS = Вход с вашей сети ограничен. Доступ можно получить на форуме YourForum.ru, ссылка на тему у вас в консоли!
+BG__URL = Ссылка на тему форума: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Ошибка проверки доступа! Попробуйте зайти через минуту...
+BG__YOUR_NAME_STEAMID_AND_IP = Ваши ник, SteamID, и IP:
+
+[en]
+BG__KICK_REASON_ACCESS = Access from your network is restricted. Access can be obtained on the forum YourForum.ru, a link to the topic in your console!
+BG__URL = Link to forum topic: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Access check failed! Try again after a minute...
+BG__YOUR_NAME_STEAMID_AND_IP = Your nick, SteamID, and IP:
