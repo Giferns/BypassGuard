@@ -162,9 +162,11 @@
 		* Косметические улучшения
 	1.0.4 (29.05.2023):
 		* Реализовано автоматическое удаление повреждённого nvault
+	1.0.5 (29.05.2023):
+		* Исправлен баг с использованием команды 'bg_check_ip' из-под клиента игры (отсутствие ответа). Спасибо NordicWarrior
 */
 
-new const PLUGIN_VERSION[] = "1.0.4"
+new const PLUGIN_VERSION[] = "1.0.5"
 
 /* ----------------------- */
 
@@ -2284,7 +2286,7 @@ public _BypassGuard_SendProxyStatus(iPluginID, iParamCount) {
 			func_RequestGeoData(0, g_szCmdIP)
 		}
 
-		console_print( pPlayer, "* '%s' (%s, %s) status is '%s'",
+		console_print( g_pRequestAdmin, "* '%s' (%s, %s) status is '%s'",
 			g_szCmdIP, g_szCode[0], g_szCountry[0], szStatus[ get_param(is_proxy) ] );
 
 		return
