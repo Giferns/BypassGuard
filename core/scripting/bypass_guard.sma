@@ -28,7 +28,7 @@
 			добавленное ограничение. Другими словами, забанив AS/IP игрока, который в данный момент находится
 			на сервере, вам необходимо кикнуть его самостоятельно.
 
-		* bg_as_blacklist_add <as number> "<comment>" <check_port 1/0>
+		* bg_as_blacklist_add <as number> "<comment>"
 		* bg_as_blacklist_del <as number>
 		* bg_as_blacklist_show <page>
 
@@ -156,9 +156,11 @@
 		* Стандартное значение квара 'bypass_guard_check_port' изменено на "a", т.к. по результатам теста,
 			достаточно много сервисов позволяют совершать обходы со стандартного порта. За тесты спасибо MrDojo.
 			Рекомендуется установить указанное значение для данного квара.
+	1.0.2 (29.05.2023):
+		* Удалён квар 'bypass_guard_check_port' и связанный с ним функционал
 */
 
-new const PLUGIN_VERSION[] = "1.0.1"
+new const PLUGIN_VERSION[] = "1.0.2"
 
 /* ----------------------- */
 
@@ -249,24 +251,12 @@ enum _:RANGE_DATA_STRUCT {
 
 enum _:AS_DATA_STRUCT {
 	ASD__NUMBER[MAX_AS_LEN],
-	ASD__COMMENT[MAX_COMMENT_LEN],
-	ASD__CHECK_PORT
+	ASD__COMMENT[MAX_COMMENT_LEN]
 }
 
 enum _:AS_TRIE_STRUCT {
 	AST__STATE,
-	AST__ARRAY_POS,
-	AST__CHECK_PORT
-}
-
-enum {
-	CHECK_PORT__AS_BAN,
-	CHECK_PORT__AS_CHECK_FAIL,
-	CHECK_PORT__IP_BLACKLIST,
-	CHECK_PORT__PROXY_DETECT,
-	CHECK_PORT__PROXY_CHECK_FAIL,
-	CHECK_PORT__COUNTRY_BAN,
-	CHECK_PORT__COUNTRY_CHECK_FAIL
+	AST__ARRAY_POS
 }
 
 enum {
@@ -286,7 +276,6 @@ enum {
 enum _:PCVAR_ENUM {
 	PCVAR__IMMUNITY_FLAGS,
 	PCVAR__AMX_DEFAULT_ACCESS,
-	PCVAR__CHECK_PORT,
 	PCVAR__KICK_IF_CANT_CHECK
 }
 
@@ -330,11 +319,8 @@ new g_fwdRequestGeoData
 new bool:g_bGotInfo
 new g_pRequestAdmin
 new g_szCmdIP[MAX_IP_LENGTH]
-new g_bitCheckPortFlags
-new g_bitPlayerPortFlags[MAX_PLAYERS + 1]
 new g_bitPlayerFailFlags[MAX_PLAYERS + 1]
 new g_iCheckStep[MAX_PLAYERS + 1]
-new g_bitDefaultPort
 new g_bitGotCountry
 new g_bitKickFailCheckFlags
 
@@ -400,25 +386,6 @@ public plugin_init() {
 
 	bind_pcvar_float( create_cvar("bypass_guard_kick_delay", "1.0", .has_min = true, .min_val = 0.1,
 		.description = "Player kick delay (low values may break URL showing!)"), Float:g_eCvar[CVAR__KICK_DELAY] );
-
-	/* --- */
-
-	pCvar = create_cvar( "bypass_guard_check_port", "a",
-		.description = "Port check mode (must be set like ^"abc^"):^n\
-		0 - Don't check port^n\
-		Allow default port for:^n\
-		a - AS ban (only ASN's with 'check_port')^n\
-		b - AS check fail^n\
-		c - IP blacklist^n\
-		d - Proxy/VPN detect^n\
-		e - Proxy/VPN check fail^n\
-		f - Country ban^n\
-		g - Country check fail" );
-
-	get_pcvar_string(pCvar, szFlags, chx(szFlags))
-	g_bitCheckPortFlags = read_flags(szFlags)
-	g_pCvar[PCVAR__CHECK_PORT] = pCvar
-	hook_cvar_change(pCvar, "hook_CvarChange")
 
 	/* --- */
 
@@ -533,9 +500,7 @@ public plugin_cfg() {
 /* -------------------- */
 
 public client_putinserver(pPlayer) {
-	ClearBit(g_bitDefaultPort, pPlayer);
 	ClearBit(g_bitGotCountry, pPlayer);
-	g_bitPlayerPortFlags[pPlayer] = 0
 	g_bitPlayerFailFlags[pPlayer] = 0
 
 	g_szAccess[pPlayer] = _NA_
@@ -558,23 +523,11 @@ public client_putinserver(pPlayer) {
 		return
 	}
 
-	func_CheckPort(pPlayer)
-
 	if(g_eCvar[CVAR__COUNTRY_CHECK_MODE]) {
 		func_RequestGeoData(pPlayer, g_szIP[pPlayer])
 	}
 
 	set_task(Float:g_eCvar[CVAR__CHECK_DELAY], "task_CheckPlayer_Step1", get_user_userid(pPlayer))
-}
-
-/* -------------------- */
-
-func_CheckPort(pPlayer) {
-	new iPos = strfind(g_szAddress[pPlayer], ":")
-
-	if(equal(g_szAddress[pPlayer][iPos + 1], "27005")) {
-		SetBit(g_bitDefaultPort, pPlayer)
-	}
 }
 
 /* -------------------- */
@@ -665,31 +618,15 @@ func_CheckPlayer_Step2(pPlayer) {
 	TrieGetArray(g_tAsNumbers, g_szAsNumber[pPlayer], eAsTrieData, sizeof(eAsTrieData))
 
 	if(eAsTrieData[AST__STATE] == STATE__BAN) {
-		if(
-			eAsTrieData[AST__CHECK_PORT]
-				&&
-			CheckBit(g_bitCheckPortFlags, CHECK_PORT__AS_BAN)
-				&&
-			CheckBit(g_bitDefaultPort, pPlayer)
-		) {
-			SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__AS_BAN)
-		}
-		else {
-			func_KickPlayer(pPlayer, KICK_TYPE__AS_BAN, eAsTrieData[AST__ARRAY_POS])
-			return
-		}
+		func_KickPlayer(pPlayer, KICK_TYPE__AS_BAN, eAsTrieData[AST__ARRAY_POS])
+		return
 	}
 
 	new eRangeData[RANGE_DATA_STRUCT], iIP = func_ParseIP(g_szIP[pPlayer])
 
 	if(IsIpInList(iIP, LIST_TYPE__BLACKLIST, eRangeData)) {
-		if(CheckBit(g_bitCheckPortFlags, CHECK_PORT__IP_BLACKLIST) && CheckBit(g_bitDefaultPort, pPlayer)) {
-			SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__IP_BLACKLIST)
-		}
-		else {
-			func_KickPlayer(pPlayer, KICK_TYPE__IP_BAN, .eRangeData = eRangeData)
-			return
-		}
+		func_KickPlayer(pPlayer, KICK_TYPE__IP_BAN, .eRangeData = eRangeData)
+		return
 	}
 
 	if(eAsTrieData[AST__STATE] == STATE__WHITELIST) {
@@ -721,13 +658,8 @@ func_CheckPlayer_Step2(pPlayer) {
 
 func_CheckPlayer_Step3(pPlayer, bool:bIsProxy) {
 	if(bIsProxy) {
-		if(CheckBit(g_bitCheckPortFlags, CHECK_PORT__PROXY_DETECT) && CheckBit(g_bitDefaultPort, pPlayer)) {
-			SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__PROXY_DETECT)
-		}
-		else {
-			func_KickPlayer(pPlayer, KICK_TYPE__PROXY_DETECTED)
-			return
-		}
+		func_KickPlayer(pPlayer, KICK_TYPE__PROXY_DETECTED)
+		return
 	}
 
 	g_iCheckStep[pPlayer] = CHECK_STEP__COUNTRY
@@ -747,27 +679,15 @@ func_CheckPlayer_Step4(pPlayer) {
 		return
 	}
 
-	if(!CheckBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__COUNTRY_CHECK_FAIL)) {
-		new bool:bKick
-
-		switch(g_eCvar[CVAR__COUNTRY_CHECK_MODE]) {
-			case 1: {
-				if(!TrieKeyExists(g_tAllowedCodes, g_szCode[pPlayer])) {
-					bKick = true
-				}
-			}
-			case 2: {
-				if(TrieKeyExists(g_tBannedCodes, g_szCode[pPlayer])) {
-					bKick = true
-				}
+	switch(g_eCvar[CVAR__COUNTRY_CHECK_MODE]) {
+		case 1: {
+			if(!TrieKeyExists(g_tAllowedCodes, g_szCode[pPlayer])) {
+				func_KickPlayer(pPlayer, KICK_TYPE__BAD_COUNTRY)
+				return
 			}
 		}
-
-		if(bKick) {
-			if(CheckBit(g_bitCheckPortFlags, CHECK_PORT__COUNTRY_BAN) && CheckBit(g_bitDefaultPort, pPlayer)) {
-				SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__COUNTRY_BAN)
-			}
-			else {
+		case 2: {
+			if(TrieKeyExists(g_tBannedCodes, g_szCode[pPlayer])) {
 				func_KickPlayer(pPlayer, KICK_TYPE__BAD_COUNTRY)
 				return
 			}
@@ -789,17 +709,13 @@ func_CheckPlayer_Step4(pPlayer) {
 /* -------------------- */
 
 func_LogPlayerFlags(pPlayer, iLogType) {
+	if(!g_bitPlayerFailFlags[pPlayer]) {
+		return
+	}
+
 	new szFlags[32]
-
-	if(g_bitPlayerPortFlags[pPlayer]) {
-		get_flags(g_bitPlayerPortFlags[pPlayer], szFlags, chx(szFlags))
-		log_to_file(g_eLogFile[iLogType], "Triggered port flags: %s", szFlags)
-	}
-
-	if(g_bitPlayerFailFlags[pPlayer]) {
-		get_flags(g_bitPlayerFailFlags[pPlayer], szFlags, chx(szFlags))
-		log_to_file(g_eLogFile[iLogType], "Check fail flags: %s", szFlags)
-	}
+	get_flags(g_bitPlayerFailFlags[pPlayer], szFlags, chx(szFlags))
+	log_to_file(g_eLogFile[iLogType], "Check fail flags: %s", szFlags)
 }
 
 /* -------------------- */
@@ -944,7 +860,7 @@ public concmd_AddToAsList(pPlayer, iAccess) {
 
 	if(iArgCount == 1) {
 		if(iType == LIST_TYPE__BLACKLIST) {
-			console_print(pPlayer, "* Usage: bg_as_blacklist_add <as_number> <^"comment^">[optional] <check_port 1/0>")
+			console_print(pPlayer, "* Usage: bg_as_blacklist_add <as_number> <^"comment^">[optional]")
 		}
 		else {
 			console_print(pPlayer, "* Usage: bg_as_whitelist_add <as_number> <^"comment^">[optional]")
@@ -981,10 +897,6 @@ public concmd_AddToAsList(pPlayer, iAccess) {
 			console_print(pPlayer, "* Comment is too long, max %i chars!", MAX_COMMENT_LEN)
 			return PLUGIN_HANDLED
 		}
-
-		if(iArgCount > 3) {
-			eAsData[ASD__CHECK_PORT] = eAsTrieData[AST__CHECK_PORT] = read_argv_int(3) ? 1 : 0;
-		}
 	}
 	else {
 		szBuffer[0] = EOS
@@ -999,9 +911,7 @@ public concmd_AddToAsList(pPlayer, iAccess) {
 		return PLUGIN_HANDLED
 	}
 
-	fprintf(hFile, "^n%s %s", LIST_NAME[iType], eAsData[ASD__NUMBER])
-
-	fprintf(hFile, " ^"%s^" %i", szBuffer, eAsTrieData[AST__CHECK_PORT])
+	fprintf(hFile, "^n%s %s ^"%s^"", LIST_NAME[iType], eAsData[ASD__NUMBER], szBuffer)
 
 	fclose(hFile)
 
@@ -1088,7 +998,7 @@ public concmd_DelFromAsList(pPlayer, iAccess) {
 		return PLUGIN_HANDLED
 	}
 
-	new szString[128], bool:bFound, eAsData[AS_DATA_STRUCT], szCheckPort[2]
+	new szString[128], bool:bFound, eAsData[AS_DATA_STRUCT]
 
 	func_AddDefSting_AS(hNewFile)
 
@@ -1103,22 +1013,16 @@ public concmd_DelFromAsList(pPlayer, iAccess) {
 		}
 
 		eAsData[ASD__COMMENT][0] = EOS
-		szCheckPort[0] = '0'
 
 		parse( szString, "", "", eAsData[ASD__NUMBER], MAX_AS_LEN - 1,
-			eAsData[ASD__COMMENT], MAX_COMMENT_LEN - 1,
-			szCheckPort, chx(szCheckPort) );
+			eAsData[ASD__COMMENT], MAX_COMMENT_LEN - 1 );
 
 		if(equal(eAsData[ASD__NUMBER], szBuffer)) {
 			bFound = true
 			continue
 		}
 
-		fprintf(hNewFile, "^n%s %s", LIST_NAME[iType], eAsData[ASD__NUMBER])
-
-		fprintf(hNewFile, " ^"%s^" %s", eAsData[ASD__COMMENT], szCheckPort)
-
-		eAsData[ASD__CHECK_PORT] = eAsTrieData[AST__CHECK_PORT] = (szCheckPort[0] != '0')
+		fprintf(hNewFile, "^n%s %s ^"%s^"", LIST_NAME[iType], eAsData[ASD__NUMBER], eAsData[ASD__COMMENT])
 
 		eAsTrieData[AST__STATE] = (iType == LIST_TYPE__BLACKLIST) ? STATE__BAN : STATE__WHITELIST;
 		eAsTrieData[AST__ARRAY_POS] = g_iAsCount[iType]
@@ -1190,7 +1094,7 @@ public concmd_ShowAsList(pPlayer, iAccess) {
 	}
 
 	console_print(pPlayer, "Displaying page %i/%i:", iPage, iTotalPages)
-	console_print(pPlayer, "# <-> AS number <-> Comment <-> Check port")
+	console_print(pPlayer, "# <-> AS number <-> Comment")
 
 	new iCount, iStartPos, i
 	iStartPos = i = 10 * (iPage - 1)
@@ -1204,8 +1108,7 @@ public concmd_ShowAsList(pPlayer, iAccess) {
 			eAsData[ASD__COMMENT] = _NA_
 		}
 
-		console_print( pPlayer, "%i <-> %s <-> %s <-> %i", i + 1,
-			eAsData[ASD__NUMBER], eAsData[ASD__COMMENT], eAsData[ASD__CHECK_PORT] );
+		console_print(pPlayer, "%i <-> %s <-> %s", i + 1, eAsData[ASD__NUMBER], eAsData[ASD__COMMENT]);
 
 		if(++iCount == 10) {
 			break
@@ -1861,7 +1764,7 @@ func_LoadAsNumbers() {
 		return
 	}
 
-	new iType, szBuffer[128], eAsData[AS_DATA_STRUCT], eAsTrieData[AS_TRIE_STRUCT], szCheckPort[2]
+	new iType, szBuffer[128], eAsData[AS_DATA_STRUCT], eAsTrieData[AS_TRIE_STRUCT]
 
 	while(!feof(hFile)) {
 		fgets(hFile, szBuffer, chx(szBuffer))
@@ -1874,15 +1777,12 @@ func_LoadAsNumbers() {
 		}
 
 		eAsData[ASD__COMMENT][0] = EOS
-		szCheckPort[0] = '0'
 
 		parse( szBuffer, "", "", eAsData[ASD__NUMBER], MAX_AS_LEN - 1,
-			eAsData[ASD__COMMENT], MAX_COMMENT_LEN - 1,
-			szCheckPort, chx(szCheckPort) );
+			eAsData[ASD__COMMENT], MAX_COMMENT_LEN - 1 );
 
 		eAsTrieData[AST__STATE] = (iType == LIST_TYPE__BLACKLIST) ? STATE__BAN : STATE__WHITELIST;
 		eAsTrieData[AST__ARRAY_POS] = g_iAsCount[iType]
-		eAsData[ASD__CHECK_PORT] = eAsTrieData[AST__CHECK_PORT] = (szCheckPort[0] != '0')
 		TrieSetArray(g_tAsNumbers, eAsData[ASD__NUMBER], eAsTrieData, sizeof(eAsTrieData))
 		ArrayPushArray(g_aAsArray[iType], eAsData)
 		g_iAsCount[iType]++
@@ -2096,11 +1996,6 @@ public hook_CvarChange(pCvar, szOldVal[], szNewVal[]) {
 		return
 	}
 
-	if(pCvar == g_pCvar[PCVAR__CHECK_PORT]) {
-		g_bitCheckPortFlags = iNewVal
-		return
-	}
-
 	// PCVAR__KICK_IF_CANT_CHECK
 	g_bitKickFailCheckFlags = iNewVal
 }
@@ -2183,7 +2078,7 @@ func_AddDefSting_List(hFile) {
 /* -------------------- */
 
 func_AddDefSting_AS(hFile) {
-	fputs(hFile, ";Line format: blacklist/whitelist AS_number ^"comment^"[optional] check_port^n")
+	fputs(hFile, ";Line format: blacklist/whitelist AS_number ^"comment^"[optional]^n")
 }
 
 /* -------------------- */
@@ -2259,12 +2154,7 @@ public _BypassGuard_SendGeoData(iPluginID, iParamCount) {
 		get_string(country, g_szCountry[pPlayer], chx(g_szCountry[]))
 	}
 	else {
-		if(CheckBit(g_bitCheckPortFlags, CHECK_PORT__COUNTRY_CHECK_FAIL) && CheckBit(g_bitDefaultPort, pPlayer)) {
-			SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__COUNTRY_CHECK_FAIL)
-		}
-		else {
-			SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__COUNTRY)
-		}
+		SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__COUNTRY)
 	}
 
 	SetBit(g_bitGotCountry, pPlayer)
@@ -2312,17 +2202,12 @@ public _BypassGuard_SendAsInfo(iPluginID, iParamCount) {
 	}
 
 	if(!get_param(success)) {
-		if(CheckBit(g_bitCheckPortFlags, CHECK_PORT__AS_CHECK_FAIL) && CheckBit(g_bitDefaultPort, pPlayer)) {
-			SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__AS_CHECK_FAIL)
+		if(CheckBit(g_bitKickFailCheckFlags, FAIL__AS)) {
+			func_KickPlayer(pPlayer, KICK_TYPE__AS_CHECK_FAIL)
+			return
 		}
-		else {
-			if(CheckBit(g_bitKickFailCheckFlags, FAIL__AS)) {
-				func_KickPlayer(pPlayer, KICK_TYPE__AS_CHECK_FAIL)
-				return
-			}
 
-			SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__AS)
-		}
+		SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__AS)
 	}
 	else {
 		get_string(as, g_szAsNumber[pPlayer], chx(g_szAsNumber[]))
@@ -2366,17 +2251,12 @@ public _BypassGuard_SendProxyStatus(iPluginID, iParamCount) {
 	}
 
 	if(!get_param(success)) {
-		if(CheckBit(g_bitCheckPortFlags, CHECK_PORT__PROXY_CHECK_FAIL) && CheckBit(g_bitDefaultPort, pPlayer)) {
-			SetBit(g_bitPlayerPortFlags[pPlayer], CHECK_PORT__PROXY_CHECK_FAIL)
+		if(CheckBit(g_bitKickFailCheckFlags, FAIL__PROXY)) {
+			func_KickPlayer(pPlayer, KICK_TYPE__PROXY_CHECK_FAIL)
+			return
 		}
-		else {
-			if(CheckBit(g_bitKickFailCheckFlags, FAIL__PROXY)) {
-				func_KickPlayer(pPlayer, KICK_TYPE__PROXY_CHECK_FAIL)
-				return
-			}
 
-			SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__PROXY)
-		}
+		SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__PROXY)
 	}
 
 	func_CheckPlayer_Step3(pPlayer, bool:get_param(is_proxy))
