@@ -158,15 +158,23 @@
 			Рекомендуется установить указанное значение для данного квара.
 	1.0.2 (29.05.2023):
 		* Удалён квар 'bypass_guard_check_port' и связанный с ним функционал
+	1.0.3 (29.05.2023):
+		* Косметические улучшения
 */
 
-new const PLUGIN_VERSION[] = "1.0.2"
+new const PLUGIN_VERSION[] = "1.0.3"
 
 /* ----------------------- */
 
-#define AUTO_CFG // Создавать конфиг с кварами в 'configs/plugins', и запускать его ?
+// Create config with cvars in 'configs/plugins' and execute it?
+//
+// Создавать конфиг с кварами в 'configs/plugins', и запускать его ?
+#define AUTO_CFG
 
-#define ACCESS_FLAG ADMIN_CFG // Флаг доступа по-умолчанию ко всем консольным командам
+// Default access flag for all console commands
+//
+// Флаг доступа по-умолчанию ко всем консольным командам
+#define ACCESS_FLAG ADMIN_CFG
 
 new DIR_NAME[] = "bypass_guard" // 'configs/%s', 'data/%s', 'logs/%s'
 new const IP_FILE_NAME[] = "ip_list.ini"
@@ -364,9 +372,9 @@ public plugin_init() {
 
 	/* --- */
 
-	pCvar = create_cvar( "bypass_guard_immunity_flags", "",
+	pCvar = create_cvar( "bypass_guard_immunity_flags", "d",
 		.description = "Allow players with any of specified flags to join without checks^n\
-		If value is non-empty, standart immunity by absence of 'amx_default_access' flag will be disabled" );
+		If value is empty, standart immunity by absence of 'amx_default_access' flag will be used" );
 
 	get_pcvar_string(pCvar, szFlags, chx(szFlags))
 	g_bitImmunityFlags = read_flags(szFlags)
@@ -1811,8 +1819,9 @@ func_LoadCodes(const szFileName[], szPath[], Trie:tTrie, bool:bAllowed) {
 
 		if(bAllowed) {
 			fputs( hFile,
-				"; Список стран, которые могут входить на сервер^n\
-				; Country list that can enter to the server^n\
+				"; Список стран, которые могут входить на сервер | https://www.artlebedev.ru/country-list/^n\
+				; Country list that can enter to the server | https://www.iban.com/country-codes^n\
+				;^n\
 				;^"N/A^" // Неизвестно^n\
 				^"RU^" // Россия^n\
 				^"UA^" // Украина^n\
@@ -1835,8 +1844,9 @@ func_LoadCodes(const szFileName[], szPath[], Trie:tTrie, bool:bAllowed) {
 		}
 		else {
 			fputs( hFile,
-				"; Список стран, которые НЕ могут входить на сервер^n\
-				; Country list that can't enter to the server^n\
+				"; Список стран, которые НЕ могут входить на сервер | https://www.artlebedev.ru/country-list/^n\
+				; Country list that can't enter to the server | https://www.iban.com/country-codes^n\
+				;^n\
 				;^"N/A^" // Неизвестно^n\
 				^"EG^" // Египет^n\
 				^"GR^" // Греция"
@@ -2072,13 +2082,27 @@ bool:IsValidAsNumber(szAsNumber[]) {
 /* -------------------- */
 
 func_AddDefSting_List(hFile) {
-	fputs(hFile, ";Line format: blacklist/whitelist start_ip end_ip ^"comment^"[optional]^n")
+	fputs(hFile, "; Формат записей / Line format:^n\
+		; blacklist/whitelist start_ip end_ip ^"comment^"[optional]^n\
+		; Примеры / Examples:^n\
+		; blacklist 100.50.33.0 10.50.34.0 ^"cheater^"^n\
+		; blacklist 60.40.0.0 60.90.25.0 ^"^"^n\
+		; whitelist 162.54.22.25 162.54.48.0 ^"trusted network^"^n\
+		;"
+	);
 }
 
 /* -------------------- */
 
 func_AddDefSting_AS(hFile) {
-	fputs(hFile, ";Line format: blacklist/whitelist AS_number ^"comment^"[optional]^n")
+	fputs( hFile, "; Формат записей / Line format:^n\
+		; blacklist/whitelist AS_number ^"comment^"[optional]^n\
+		; Примеры / Examples:^n\
+		; blacklist AS1234 ^"cheater^"^n\
+		; blacklist AS6767 ^"^"^n\
+		; whitelist AS8765 ^"good player^"^n\
+		;"
+	);
 }
 
 /* -------------------- */
