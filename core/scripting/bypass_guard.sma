@@ -388,7 +388,7 @@ public plugin_init() {
 	/* --- */
 
 	bind_pcvar_num( create_cvar("bypass_guard_show_url", "1",
-		.description = "Show URL when player gets kicked?"), g_eCvar[CVAR__SHOW_URL] );
+		.description = "Show URL when player gets kicked (don't forget to edit 'data/lang/bypass_guard.txt') ?"), g_eCvar[CVAR__SHOW_URL] );
 
 	bind_pcvar_num( create_cvar("bypass_guard_max_check_tries", "2", .has_min = true, .min_val = 1.0,
 		.description = "Max check tries"), g_eCvar[CVAR__MAX_CHECK_TRIES] );
