@@ -160,9 +160,11 @@
 		* Удалён квар 'bypass_guard_check_port' и связанный с ним функционал
 	1.0.3 (29.05.2023):
 		* Косметические улучшения
+	1.0.4 (29.05.2023):
+		* Реализовано автоматическое удаление повреждённого nvault
 */
 
-new const PLUGIN_VERSION[] = "1.0.3"
+new const PLUGIN_VERSION[] = "1.0.4"
 
 /* ----------------------- */
 
@@ -408,7 +410,21 @@ public plugin_cfg() {
 	g_hImmunity = nvault_open(IMMUNE_STEAMS_VAULT)
 
 	if(g_hImmunity == INVALID_HANDLE) {
-		set_fail_state("[Immunity] Error opening nVault!")
+		log_to_file(g_eLogFile[LOG__ERROR], "[Error] Nvault '%s' is corrupted? Try to create new nvault...", IMMUNE_STEAMS_VAULT)
+
+		new szPath[PLATFORM_MAX_PATH]
+		new iLen = get_localinfo("amxx_datadir", szPath, chx(szPath))
+		formatex(szPath[iLen], chx(szPath) - iLen, "/vault/%s.vault", IMMUNE_STEAMS_VAULT)
+		delete_file(szPath)
+		formatex(szPath[iLen], chx(szPath) - iLen, "/vault/%s.journal", IMMUNE_STEAMS_VAULT)
+		delete_file(szPath)
+
+		g_hImmunity = nvault_open(IMMUNE_STEAMS_VAULT)
+
+		if(g_hImmunity == INVALID_HANDLE) {
+			log_to_file(g_eLogFile[LOG__ERROR], "[Error] Error creating new nVault!", IMMUNE_STEAMS_VAULT)
+			set_fail_state("[Immunity] Error creating new nVault!")
+		}
 	}
 
 	g_eIpArray[LIST_TYPE__BLACKLIST] = ArrayCreate(RANGE_DATA_STRUCT, 1)
