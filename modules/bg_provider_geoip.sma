@@ -16,9 +16,11 @@
 		* Открытый релиз
 	0.2 (17.09.2019 fix):
 		* Исправление логики при работе с API
+	0.3 (30.05.2023):
+		* Актуализация API
 */
 
-new const PLUGIN_VERSION[] = "0.2"
+new const PLUGIN_VERSION[] = "0.3"
 
 /* ----------------------- */
 
@@ -38,7 +40,7 @@ public plugin_init() {
 
 /* ----------------------- */
 
-public BypassGuard_RequestGeoData(pPlayer, szIP[], iMaxTries) {
+public BypassGuard_RequestGeoData(pPlayer, const szIP[], iMaxTries) {
 	new szCode[MAX_CODE_LEN * 2], szCountry[MAX_COUNTRY_LEN]
 	func_GetCountryCode(szIP, szCode, chx(szCode))
 	func_GetCountryName(szIP, szCountry, chx(szCountry))
@@ -50,7 +52,7 @@ public BypassGuard_RequestGeoData(pPlayer, szIP[], iMaxTries) {
 
 /* -------------------- */
 
-func_GetCountryCode(szIP[], szBuffer[], iMaxLen) {
+func_GetCountryCode(const szIP[], szBuffer[], iMaxLen) {
 	new szCode[MAX_CODE_LEN]
 
 	if(geoip_code2_ex(szIP, szCode)) {
@@ -63,7 +65,7 @@ func_GetCountryCode(szIP[], szBuffer[], iMaxLen) {
 
 /* -------------------- */
 
-func_GetCountryName(szIP[], szBuffer[], iMaxLen) {
+func_GetCountryName(const szIP[], szBuffer[], iMaxLen) {
 	if(!geoip_country_ex(szIP, szBuffer, iMaxLen)) {
 		copy(szBuffer, iMaxLen, _NA_)
 	}
