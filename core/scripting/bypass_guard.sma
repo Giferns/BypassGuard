@@ -164,9 +164,11 @@
 		* Реализовано автоматическое удаление повреждённого nvault
 	1.0.5 (29.05.2023):
 		* Исправлен баг с использованием команды 'bg_check_ip' из-под клиента игры (отсутствие ответа). Спасибо NordicWarrior
+	1.0.6 (30.05.2023):
+		* Расширение API (внимание, требуется так же обновить все плагины-провайдеры данных!)
 */
 
-new const PLUGIN_VERSION[] = "1.0.5"
+new const PLUGIN_VERSION[] = "1.0.6"
 
 /* ----------------------- */
 
@@ -223,7 +225,6 @@ new const LOG_NAME[LOG_ENUM][] = {
 #define ClearBit(%0,%1) (%0 &= ~(1 << %1))
 
 #define MAX_COMMENT_LEN 48
-#define MAX_ACCESS_LEN 32
 
 new const _NA_[] = "N/A" // don't change this!
 
@@ -233,16 +234,6 @@ enum {
 	STATE__NOT_SET, // dummy
 	STATE__WHITELIST,
 	STATE__BAN
-}
-
-enum KICK_TYPE_ENUM {
-	KICK_TYPE__AS_BAN,
-	KICK_TYPE__IP_BAN,
-	KICK_TYPE__BAD_COUNTRY,
-	KICK_TYPE__PROXY_DETECTED,
-	KICK_TYPE__AS_CHECK_FAIL,
-	KICK_TYPE__PROXY_CHECK_FAIL,
-	KICK_TYPE__COUNTRY_CHECK_FAIL
 }
 
 enum _:LIST_TYPE_ENUM {
@@ -272,12 +263,6 @@ enum _:AS_TRIE_STRUCT {
 }
 
 enum {
-	FAIL__AS,
-	FAIL__PROXY,
-	FAIL__COUNTRY
-}
-
-enum {
 	CHECK_STEP__NO,
 	CHECK_STEP__AS,
 	CHECK_STEP__PROXY,
@@ -296,8 +281,8 @@ enum _:CVAR_ENUM {
 	CVAR__MAX_CHECK_TRIES,
 	CVAR__ALLOW_STEAM,
 	CVAR__SHOW_URL,
-	CVAR__CHECK_DELAY,
-	CVAR__KICK_DELAY,
+	Float:CVAR_F__CHECK_DELAY,
+	Float:CVAR_F__KICK_DELAY,
 	CVAR__COUNTRY_CHECK_MODE
 }
 
@@ -312,7 +297,9 @@ new g_bitDefAccFlags
 new g_bitImmunityFlags
 new bool:g_bPluginEnded
 new g_eLogFile[LOG_ENUM][PLATFORM_MAX_PATH]
+new any:g_iAccessType[MAX_PLAYERS + 1] = { INVALID_ACCESS_TYPE, ... }
 new g_szAccess[MAX_PLAYERS + 1][MAX_ACCESS_LEN]
+new g_szAccessExt[MAX_PLAYERS + 1][MAX_ACCESS_EXT_LEN]
 new g_szAsNumber[MAX_PLAYERS + 1][MAX_AS_LEN]
 new g_szDesc[MAX_PLAYERS + 1][MAX_DESC_LEN]
 new g_szCode[MAX_PLAYERS + 1][MAX_CODE_LEN * 2]
@@ -328,6 +315,7 @@ new g_szAuthID[MAX_PLAYERS + 1][MAX_AUTHID_LENGTH]
 new g_fwdRequestAsInfo
 new g_fwdRequestProxyStatus
 new g_fwdRequestGeoData
+new g_fwdPlayerCheckComplete
 new bool:g_bGotInfo
 new g_pRequestAdmin
 new g_szCmdIP[MAX_IP_LENGTH]
@@ -335,6 +323,8 @@ new g_bitPlayerFailFlags[MAX_PLAYERS + 1]
 new g_iCheckStep[MAX_PLAYERS + 1]
 new g_bitGotCountry
 new g_bitKickFailCheckFlags
+new bool:g_bCheckComplete[MAX_PLAYERS + 1]
+new g_ePlayerData[BG_PLAYER_DATA_STRUCT]
 
 /* -------------------- */
 
@@ -342,6 +332,12 @@ public plugin_init() {
 	register_plugin("Bypass Guard", PLUGIN_VERSION, "mx?!")
 	register_dictionary("bypass_guard.txt")
 
+	RegCvars()
+}
+
+/* -------------------- */
+
+RegCvars() {
 	bind_pcvar_num( create_cvar("bypass_guard_enabled", "1",
 		.description = "Enable/Disable plugin work"), g_eCvar[CVAR__PLUGIN_ENABLED] );
 
@@ -394,10 +390,10 @@ public plugin_init() {
 		.description = "Max check tries"), g_eCvar[CVAR__MAX_CHECK_TRIES] );
 
 	bind_pcvar_float( create_cvar("bypass_guard_check_delay", "0.1", .has_min = true, .min_val = 0.1,
-		.description = "Player check delay"), Float:g_eCvar[CVAR__CHECK_DELAY] );
+		.description = "Player check delay"), g_eCvar[CVAR_F__CHECK_DELAY] );
 
 	bind_pcvar_float( create_cvar("bypass_guard_kick_delay", "1.0", .has_min = true, .min_val = 0.1,
-		.description = "Player kick delay (low values may break URL showing!)"), Float:g_eCvar[CVAR__KICK_DELAY] );
+		.description = "Player kick delay (low values may break URL showing!)"), g_eCvar[CVAR_F__KICK_DELAY] );
 
 	/* --- */
 
@@ -445,6 +441,8 @@ public plugin_cfg() {
 		ET_STOP, FP_CELL, FP_STRING, FP_CELL );
 
 	g_fwdRequestGeoData = CreateMultiForward("BypassGuard_RequestGeoData", ET_STOP, FP_CELL, FP_STRING, FP_CELL)
+
+	g_fwdPlayerCheckComplete = CreateMultiForward("BypassGuard_PlayerCheckComplete", ET_IGNORE, FP_CELL, FP_CELL, FP_ARRAY)
 
 	/* --- */
 
@@ -529,7 +527,9 @@ public client_putinserver(pPlayer) {
 	ClearBit(g_bitGotCountry, pPlayer);
 	g_bitPlayerFailFlags[pPlayer] = 0
 
+	g_iAccessType[pPlayer] = INVALID_ACCESS_TYPE
 	g_szAccess[pPlayer] = _NA_
+	g_szAccessExt[pPlayer] = _NA_
 	g_szAsNumber[pPlayer] = _NA_
 	g_szDesc[pPlayer] = _NA_
 	g_szCode[pPlayer] = _NA_
@@ -541,7 +541,9 @@ public client_putinserver(pPlayer) {
 	get_user_authid(pPlayer, g_szAuthID[pPlayer], chx(g_szAuthID[]))
 
 	if(is_user_bot(pPlayer) || is_user_hltv(pPlayer)) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__BOT_OR_HLTV
 		g_szAccess[pPlayer] = "Bot/HLTV"
+		g_bCheckComplete[pPlayer] = true
 		return
 	}
 
@@ -553,13 +555,42 @@ public client_putinserver(pPlayer) {
 		func_RequestGeoData(pPlayer, g_szIP[pPlayer])
 	}
 
-	set_task(Float:g_eCvar[CVAR__CHECK_DELAY], "task_CheckPlayer_Step1", get_user_userid(pPlayer))
+	set_task(g_eCvar[CVAR_F__CHECK_DELAY], "task_CheckPlayer_Step1", get_user_userid(pPlayer))
 }
 
 /* -------------------- */
 
 public client_disconnected(pPlayer) {
 	remove_task(get_user_userid(pPlayer)) // task_CheckPlayer_Step1() and also task_DelayedKick()
+}
+
+/* -------------------- */
+
+public client_remove(pPlayer) {
+	g_bCheckComplete[pPlayer] = false
+}
+
+/* -------------------- */
+
+FormPlayerData(pPlayer, ePlayerData[BG_PLAYER_DATA_STRUCT]) {
+	ePlayerData[BG_PDS__ACCESS_TYPE] = g_iAccessType[pPlayer]
+	copy(ePlayerData[BG_PDS__AS], chx(ePlayerData[BG_PDS__AS]), g_szAsNumber[pPlayer])
+	copy(ePlayerData[BG_PDS__DESC], chx(ePlayerData[BG_PDS__DESC]), g_szDesc[pPlayer])
+	copy(ePlayerData[BG_PDS__CODE], chx(ePlayerData[BG_PDS__CODE]), g_szCode[pPlayer])
+	copy(ePlayerData[BG_PDS__COUNTRY], chx(ePlayerData[BG_PDS__COUNTRY]), g_szCountry[pPlayer])
+	copy(ePlayerData[BG_PDS__ACCESS], chx(ePlayerData[BG_PDS__ACCESS]), g_szAccess[pPlayer])
+	copy(ePlayerData[BG_PDS__ACCESS_EXT], chx(ePlayerData[BG_PDS__ACCESS_EXT]), g_szAccessExt[pPlayer])
+	ePlayerData[BG_PDS__CHECK_FAIL_FLAGS] = g_bitPlayerFailFlags[pPlayer]
+}
+
+/* -------------------- */
+
+SetPlayerCheckComplete(pPlayer, bool:bAllowConnect) {
+	g_bCheckComplete[pPlayer] = true
+
+	FormPlayerData(pPlayer, g_ePlayerData)
+
+	ExecuteForward(g_fwdPlayerCheckComplete, _, pPlayer, bAllowConnect, PrepareArray(g_ePlayerData, sizeof(g_ePlayerData)))
 }
 
 /* -------------------- */
@@ -572,10 +603,13 @@ public task_CheckPlayer_Step1(iUserID) {
 	}
 
 	if(g_eCvar[CVAR__ALLOW_STEAM] && is_user_steam(pPlayer)) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__STEAM
 		g_szAccess[pPlayer] = "Steam"
 
 		log_to_file( g_eLogFile[LOG__ALLOW], "[Legit Steam] %n | %s | %s | %s | %s",
 			pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], g_szCode[pPlayer], g_szCountry[pPlayer] );
+
+		SetPlayerCheckComplete(pPlayer, true)
 
 		return
 	}
@@ -592,21 +626,28 @@ public task_CheckPlayer_Step1(iUserID) {
 	}
 
 	if(bImmunity) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__ACCESS_FLAGS
 		g_szAccess[pPlayer] = "Access"
 
 		new szFlags[32]; get_flags(iFlags, szFlags, chx(szFlags))
+		copy(g_szAccessExt[pPlayer], chx(g_szAccessExt[]), szFlags)
 
 		log_to_file( g_eLogFile[LOG__ALLOW], "[Access Flags] %n | %s | %s | %s | %s | %s",
 			pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], szFlags, g_szCode[pPlayer], g_szCountry[pPlayer] );
+
+		SetPlayerCheckComplete(pPlayer, true)
 
 		return
 	}
 
 	if(nvault_get(g_hImmunity, g_szAuthID[pPlayer])) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__STEAMID_IMMUNITY
 		g_szAccess[pPlayer] = "Immunity"
 
 		log_to_file( g_eLogFile[LOG__ALLOW], "[SteamID Immunity] %n | %s | %s | %s | %s",
 			pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], g_szCode[pPlayer], g_szCountry[pPlayer] );
+
+		SetPlayerCheckComplete(pPlayer, true)
 
 		return
 	}
@@ -614,6 +655,7 @@ public task_CheckPlayer_Step1(iUserID) {
 	new eRangeData[RANGE_DATA_STRUCT], iIP = func_ParseIP(g_szIP[pPlayer])
 
 	if(IsIpInList(iIP, LIST_TYPE__WHITELIST, eRangeData)) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__IP_WHITELIST
 		g_szAccess[pPlayer] = "IP Whitelist"
 		new szStartIP[MAX_IP_LENGTH], szEndIP[MAX_IP_LENGTH]
 
@@ -624,9 +666,13 @@ public task_CheckPlayer_Step1(iUserID) {
 			eRangeData[RDS__COMMENT] = _NA_
 		}
 
+		formatex(g_szAccessExt[pPlayer], chx(g_szAccessExt[]), "%s %s ^"%s^"", szStartIP, szEndIP, eRangeData[RDS__COMMENT])
+
 		log_to_file( g_eLogFile[LOG__ALLOW], "[IP Whitelist] %n | %s | %s | %s - %s | %s | %s | %s",
 			pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], szStartIP, szEndIP, eRangeData[RDS__COMMENT],
 			g_szCode[pPlayer], g_szCountry[pPlayer] );
+
+		SetPlayerCheckComplete(pPlayer, true)
 
 		return
 	}
@@ -634,7 +680,18 @@ public task_CheckPlayer_Step1(iUserID) {
 	g_iCheckStep[pPlayer] = CHECK_STEP__AS
 
 	// provider plugin -> _BypassGuard_SendAsInfo() -> func_CheckPlayer_Step2()
-	ExecuteForward(g_fwdRequestAsInfo, _, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
+	new iRet; ExecuteForward(g_fwdRequestAsInfo, iRet, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
+
+	if(!iRet) {
+		FwdError("BypassGuard_RequestAsInfo")
+	}
+}
+
+/* -------------------- */
+
+FwdError(const szFwdName[]) {
+	log_to_file(g_eLogFile[LOG__ERROR], "[Error] No one handle '%s' request! Check your setup!", szFwdName)
+	set_fail_state("No one handle '%s' request! Check your setup!", szFwdName)
 }
 
 /* -------------------- */
@@ -656,6 +713,7 @@ func_CheckPlayer_Step2(pPlayer) {
 	}
 
 	if(eAsTrieData[AST__STATE] == STATE__WHITELIST) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__AS_WHITELIST
 		g_szAccess[pPlayer] = "AS Whitelist"
 
 		new eAsData[AS_DATA_STRUCT]
@@ -669,7 +727,11 @@ func_CheckPlayer_Step2(pPlayer) {
 			pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], g_szAsNumber[pPlayer], g_szDesc[pPlayer],
 			eAsData[ASD__COMMENT], g_szCode[pPlayer], g_szCountry[pPlayer] );
 
+		copy(g_szAccessExt[pPlayer], chx(g_szAccessExt[]), eAsData[ASD__COMMENT])
+
 		func_LogPlayerFlags(pPlayer, LOG__ALLOW)
+
+		SetPlayerCheckComplete(pPlayer, true)
 
 		return
 	}
@@ -677,7 +739,11 @@ func_CheckPlayer_Step2(pPlayer) {
 	g_iCheckStep[pPlayer] = CHECK_STEP__PROXY
 
 	// provider plugin -> _BypassGuard_SendProxyStatus() -> func_CheckPlayer_Step3()
-	ExecuteForward(g_fwdRequestProxyStatus, _, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
+	new iRet; ExecuteForward(g_fwdRequestProxyStatus, iRet, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
+
+	if(!iRet) {
+		FwdError("BypassGuard_RequestProxyStatus")
+	}
 }
 
 /* -------------------- */
@@ -699,8 +765,8 @@ func_CheckPlayer_Step3(pPlayer, bool:bIsProxy) {
 /* -------------------- */
 
 func_CheckPlayer_Step4(pPlayer) {
-	if(CheckBit(g_bitKickFailCheckFlags, FAIL__COUNTRY) && CheckBit(g_bitPlayerFailFlags[pPlayer], FAIL__COUNTRY)) {
-		ClearBit(g_bitPlayerFailFlags[pPlayer], FAIL__COUNTRY)
+	if(CheckBit(g_bitKickFailCheckFlags, BG_CHECK_FAIL__COUNTRY) && CheckBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)) {
+		ClearBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)
 		func_KickPlayer(pPlayer, KICK_TYPE__COUNTRY_CHECK_FAIL)
 		return
 	}
@@ -722,6 +788,7 @@ func_CheckPlayer_Step4(pPlayer) {
 
 	g_iCheckStep[pPlayer] = CHECK_STEP__DONE
 
+	g_iAccessType[pPlayer] = ALLOW_TYPE__CHECK
 	g_szAccess[pPlayer] = "Check"
 
 	log_to_file( g_eLogFile[LOG__ALLOW], "[%s] %n | %s | %s | %s | %s | %s | %s",
@@ -730,6 +797,8 @@ func_CheckPlayer_Step4(pPlayer) {
 	);
 
 	func_LogPlayerFlags(pPlayer, LOG__ALLOW)
+
+	SetPlayerCheckComplete(pPlayer, true)
 }
 
 /* -------------------- */
@@ -739,9 +808,31 @@ func_LogPlayerFlags(pPlayer, iLogType) {
 		return
 	}
 
+	static szString[128]
+	new iLen = formatex(szString, chx(szString), "Check fail flags:")
+
+	if(CheckBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__AS)) {
+		iLen += formatex(szString[iLen], chx(szString) - iLen, " AS,")
+	}
+
+	if(CheckBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__PROXY)) {
+		iLen += formatex(szString[iLen], chx(szString) - iLen, " Proxy,")
+	}
+
+	if(CheckBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)) {
+		iLen += formatex(szString[iLen], chx(szString) - iLen, " Country")
+	}
+
+	if(szString[iLen - 1] == ',') {
+		szString[iLen - 1] = EOS
+	}
+
+	log_to_file(g_eLogFile[iLogType], szString)
+
+	/* Old method
 	new szFlags[32]
 	get_flags(g_bitPlayerFailFlags[pPlayer], szFlags, chx(szFlags))
-	log_to_file(g_eLogFile[iLogType], "Check fail flags: %s", szFlags)
+	log_to_file(g_eLogFile[iLogType], "Check fail flags: %s", szFlags) */
 }
 
 /* -------------------- */
@@ -757,6 +848,9 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 		"Country Check Fail"
 	}
 
+	g_iAccessType[pPlayer] = iKickType
+	copy(g_szAccess[pPlayer], chx(g_szAccess[]), KICK_TYPE[iKickType])
+
 	new szMsg[320]
 
 	new iLen = formatex( szMsg, chx(szMsg), "[%s] %n | %s | %s",
@@ -771,6 +865,8 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 				eAsData[ASD__COMMENT] = _NA_
 			}
 
+			copy(g_szAccessExt[pPlayer], chx(g_szAccessExt[]), eAsData[ASD__COMMENT])
+
 			iLen += formatex(szMsg[iLen], chx(szMsg) - iLen, " | %s | %s | %s",
 				g_szAsNumber[pPlayer], g_szDesc[pPlayer], eAsData[ASD__COMMENT] );
 		}
@@ -783,6 +879,8 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 			if(!eRangeData[RDS__COMMENT][0]) {
 				eRangeData[RDS__COMMENT] = _NA_
 			}
+
+			formatex(g_szAccessExt[pPlayer], chx(g_szAccessExt[]), "%s %s ^"%s^"", szStartIP, szEndIP, eRangeData[RDS__COMMENT])
 
 			iLen += formatex( szMsg[iLen], chx(szMsg) - iLen, " | %s - %s | %s | %s | %s",
 				szStartIP, szEndIP, eRangeData[RDS__COMMENT], g_szAsNumber[pPlayer], g_szDesc[pPlayer] );
@@ -815,7 +913,9 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 		iData[0] = 1
 	}
 
-	set_task(Float:g_eCvar[CVAR__KICK_DELAY], "task_DelayedKick", get_user_userid(pPlayer), iData, sizeof(iData))
+	set_task(g_eCvar[CVAR_F__KICK_DELAY], "task_DelayedKick", get_user_userid(pPlayer), iData, sizeof(iData))
+
+	SetPlayerCheckComplete(pPlayer, false)
 }
 
 /* -------------------- */
@@ -1570,7 +1670,13 @@ public concmd_GetAsByIP(pPlayer, iAccess) {
 	g_bGotInfo = false
 	g_pRequestAdmin = pPlayer
 	copy(g_szCmdIP, chx(g_szCmdIP), szBuffer)
-	ExecuteForward(g_fwdRequestAsInfo, _, 0, szBuffer, g_eCvar[CVAR__MAX_CHECK_TRIES])
+	new iRet; ExecuteForward(g_fwdRequestAsInfo, iRet, 0, szBuffer, g_eCvar[CVAR__MAX_CHECK_TRIES])
+
+	if(!iRet) {
+		console_print(pPlayer, "* Error! See '%s' for more information!", LOG_NAME[LOG__ERROR])
+		FwdError("BypassGuard_RequestAsInfo")
+		return PLUGIN_HANDLED
+	}
 
 	if(!g_bGotInfo) {
 		console_print(pPlayer, "* Query for IP '%s' was sent, use cmd again!", szBuffer)
@@ -1609,7 +1715,13 @@ public concmd_CheckIP(pPlayer, iAccess) {
 	g_bGotInfo = false
 	g_pRequestAdmin = pPlayer
 	copy(g_szCmdIP, chx(g_szCmdIP), szBuffer)
-	ExecuteForward(g_fwdRequestProxyStatus, _, 0, szBuffer, g_eCvar[CVAR__MAX_CHECK_TRIES])
+	new iRet; ExecuteForward(g_fwdRequestProxyStatus, iRet, 0, szBuffer, g_eCvar[CVAR__MAX_CHECK_TRIES])
+
+	if(!iRet) {
+		console_print(pPlayer, "* Error! See '%s' for more information!", LOG_NAME[LOG__ERROR])
+		FwdError("BypassGuard_RequestProxyStatus")
+		return PLUGIN_HANDLED
+	}
 
 	if(!g_bGotInfo) {
 		console_print(pPlayer, "* Query for IP '%s' was sent, use cmd again!", szBuffer)
@@ -2127,7 +2239,11 @@ func_AddDefSting_AS(hFile) {
 
 func_RequestGeoData(pPlayer, szIP[]) {
 	// provider plugin -> _BypassGuard_SendGeoData()
-	ExecuteForward(g_fwdRequestGeoData, _, pPlayer, szIP, g_eCvar[CVAR__MAX_CHECK_TRIES])
+	new iRet; ExecuteForward(g_fwdRequestGeoData, iRet, pPlayer, szIP, g_eCvar[CVAR__MAX_CHECK_TRIES])
+
+	if(!iRet) {
+		FwdError("BypassGuard_RequestGeoData")
+	}
 }
 
 /* -------------------- */
@@ -2177,11 +2293,14 @@ public plugin_end() {
 /* -------------------- */
 
 public plugin_natives() {
+	register_library("bypass_guard_core")
+
 	register_native("BypassGuard_SendGeoData", "_BypassGuard_SendGeoData")
 	register_native("BypassGuard_SendAsInfo", "_BypassGuard_SendAsInfo")
 	register_native("BypassGuard_SendProxyStatus", "_BypassGuard_SendProxyStatus")
 	register_native("BypassGuard_LogError", "_BypassGuard_LogError")
 	register_native("BypassGuard_GetPluginFolderName", "_BypassGuard_GetPluginFolderName")
+	register_native("BypassGuard_GetPlayerData", "_BypassGuard_GetPlayerData")
 }
 
 /* -------------------- */
@@ -2196,7 +2315,7 @@ public _BypassGuard_SendGeoData(iPluginID, iParamCount) {
 		get_string(country, g_szCountry[pPlayer], chx(g_szCountry[]))
 	}
 	else {
-		SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__COUNTRY)
+		SetBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)
 	}
 
 	SetBit(g_bitGotCountry, pPlayer)
@@ -2244,12 +2363,12 @@ public _BypassGuard_SendAsInfo(iPluginID, iParamCount) {
 	}
 
 	if(!get_param(success)) {
-		if(CheckBit(g_bitKickFailCheckFlags, FAIL__AS)) {
+		if(CheckBit(g_bitKickFailCheckFlags, BG_CHECK_FAIL__AS)) {
 			func_KickPlayer(pPlayer, KICK_TYPE__AS_CHECK_FAIL)
 			return
 		}
 
-		SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__AS)
+		SetBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__AS)
 	}
 	else {
 		get_string(as, g_szAsNumber[pPlayer], chx(g_szAsNumber[]))
@@ -2293,12 +2412,12 @@ public _BypassGuard_SendProxyStatus(iPluginID, iParamCount) {
 	}
 
 	if(!get_param(success)) {
-		if(CheckBit(g_bitKickFailCheckFlags, FAIL__PROXY)) {
+		if(CheckBit(g_bitKickFailCheckFlags, BG_CHECK_FAIL__PROXY)) {
 			func_KickPlayer(pPlayer, KICK_TYPE__PROXY_CHECK_FAIL)
 			return
 		}
 
-		SetBit(g_bitPlayerFailFlags[pPlayer], FAIL__PROXY)
+		SetBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__PROXY)
 	}
 
 	func_CheckPlayer_Step3(pPlayer, bool:get_param(is_proxy))
@@ -2317,7 +2436,29 @@ public _BypassGuard_LogError(iPluginID, iParamCount) {
 /* -------------------- */
 
 public _BypassGuard_GetPluginFolderName(iPluginID, iParamCount) {
-	enum { buffer = 1, maxlen }
-	set_string(1, DIR_NAME, get_param(maxlen))
-	#pragma unused buffer
+	enum { data_buffer = 1, maxlen }
+	set_string(data_buffer, DIR_NAME, get_param(maxlen))
+	//#pragma unused data_buffer
+}
+
+/* -------------------- */
+
+public _BypassGuard_GetPlayerData(iPluginID, iParamCount) {
+	enum { player = 1, data_array }
+
+	new pPlayer = get_param(player)
+
+	if(!is_user_connected(pPlayer)) {
+		return -1
+	}
+
+	if(!g_bCheckComplete[pPlayer]) {
+		return 0
+	}
+
+	FormPlayerData(pPlayer, g_ePlayerData)
+
+	set_array(data_array, g_ePlayerData, sizeof(g_ePlayerData))
+
+	return 1
 }
