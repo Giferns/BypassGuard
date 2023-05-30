@@ -32,15 +32,26 @@
 		* Улучшение логики работы с несколькими ключами
 	0.5 (28.12.2019):
 		* Улучшение логики работы с несколькими ключами (thx Rey)
+	0.6 (30.05.2023):
+		* Уход от логики с кваром-указателем # ключа и OnConfigsExecuted() в сторону localinfo
+		* Актуализация API
+		* Незначительные улучшения
+		* Добавлен квар 'bg_iphub_use_for_geo'
 */
 
-new const PLUGIN_VERSION[] = "0.5"
+new const PLUGIN_VERSION[] = "0.6"
 
 /* ----------------------- */
 
-#define AUTO_CFG // Создавать конфиг с кварами в 'configs/plugins', и запускать его ?
+// Create config with cvars in 'configs/plugins' and execute it?
+//
+// Создавать конфиг с кварами в 'configs/plugins', и запускать его ?
+#define AUTO_CFG
 
-const MAX_KEYS = 5 // Макс. кол-во API-ключей. Увеличить при необходимости.
+// Max number of API keys. Increase if you need to.
+//
+// Макс. кол-во API-ключей. Увеличить при необходимости.
+const MAX_KEYS = 10
 
 new const KEY_FILE_NAME[] = "iphub_api_keys.ini"
 
@@ -55,9 +66,12 @@ new const KEY_FILE_NAME[] = "iphub_api_keys.ini"
 
 #define MAX_API_KEY_LEN 64
 
+new const _NA_[] = "N/A"
+
 enum _:CHECK_TYPE_ENUM {
 	CHECK_TYPE__AS,
-	CHECK_TYPE__PROXY
+	CHECK_TYPE__PROXY,
+	CHECK_TYPE__GEO
 }
 
 enum _:CHECK_EXT_DATA_STRUCT {
@@ -68,15 +82,22 @@ enum _:CHECK_EXT_DATA_STRUCT {
 	CHECK_EXT_DATA__KEY_NUMBER
 }
 
+// sizes as in iphubclient.inc (bg_provider_iphubclient.sma), see iphub_code and iphub_name
+#define IHC_COUNTRY_CODE_LEN 4
+#define IHC_COUNTRY_NAME_LEN 32
+
 enum _:CHECK_CACHE_DATA_STRUCT {
 	CHECK_CACHE__AS[MAX_AS_LEN],
 	CHECK_CACHE__DESC[MAX_DESC_LEN],
-	bool:CHECK_CACHE__IS_PROXY
+	bool:CHECK_CACHE__IS_PROXY,
+	CHECK_CACHE__COUNTRY_CODE[IHC_COUNTRY_CODE_LEN],
+	CHECK_CACHE__COUNTRY_NAME[IHC_COUNTRY_NAME_LEN]
 }
 
 enum _:CVAR_ENUM {
 	CVAR__USE_FOR_AS,
 	CVAR__USE_FOR_PROXY,
+	CVAR__USE_FOR_GEO,
 	CVAR__BAN_SUSPICIOUS,
 	CVAR__CURRENT_KEY
 }
@@ -87,7 +108,6 @@ new Trie:g_tCheckExtData
 new Trie:g_tCheckCache
 new g_szApiKey[MAX_KEYS][MAX_API_KEY_LEN]
 new g_iLoadedKeys
-new g_pCvarCurrKey
 
 /* ----------------------- */
 
@@ -109,6 +129,12 @@ public plugin_init() {
 		g_eCvar[CVAR__USE_FOR_PROXY]
 	);
 
+	bind_pcvar_num( create_cvar("bg_iphub_use_for_geo", "1",
+		.description = "Use this provider for country checking?^n\
+		Set this cvar to 0 if you use another plugin for that purpose"),
+		g_eCvar[CVAR__USE_FOR_GEO]
+	);
+
 	bind_pcvar_num( create_cvar("bg_iphub_ban_suspicious", "0",
 		.description = "Count suspicious IPs as proxy (can bring false detections)?^n\
 		Has no effect if 'bg_iphub_use_for_proxy' is set to 0"),
@@ -121,31 +147,26 @@ public plugin_init() {
 
 	/* --- */
 
-	g_pCvarCurrKey = get_cvar_pointer("_bg_iphub_current_key")
-
-	if(g_pCvarCurrKey) {
-		bind_pcvar_num(g_pCvarCurrKey, g_eCvar[CVAR__CURRENT_KEY])
-	}
-
-	/* --- */
+	new szValue[32]; get_localinfo("_bg_ihc_key", szValue, chx(szValue))
+	g_eCvar[CVAR__CURRENT_KEY] = str_to_num(szValue)
 
 	func_LoadApiKeys()
-}
 
-/* ----------------------- */
-
-public OnConfigsExecuted() {
-	if(g_pCvarCurrKey) {
-		return
+	if(g_eCvar[CVAR__CURRENT_KEY] >= g_iLoadedKeys) {
+		func_SetCurrentKey(max(0, g_iLoadedKeys - 1))
 	}
-
-	g_pCvarCurrKey = create_cvar("_bg_iphub_current_key", "0", .description = "Utility, don't touch!")
-	bind_pcvar_num(g_pCvarCurrKey, g_eCvar[CVAR__CURRENT_KEY])
 }
 
 /* ----------------------- */
 
-public BypassGuard_RequestAsInfo(pPlayer, szIP[], iMaxTries) {
+func_SetCurrentKey(iValue) {
+	g_eCvar[CVAR__CURRENT_KEY] = iValue
+	set_localinfo("_bg_ihc_key", fmt("%i", iValue))
+}
+
+/* ----------------------- */
+
+public BypassGuard_RequestAsInfo(pPlayer, const szIP[], iMaxTries) {
 	if(!g_eCvar[CVAR__USE_FOR_AS]) {
 		return PLUGIN_CONTINUE
 	}
@@ -166,7 +187,7 @@ public BypassGuard_RequestAsInfo(pPlayer, szIP[], iMaxTries) {
 
 /* ----------------------- */
 
-public BypassGuard_RequestProxyStatus(pPlayer, szIP[], iMaxTries) {
+public BypassGuard_RequestProxyStatus(pPlayer, const szIP[], iMaxTries) {
 	if(!g_eCvar[CVAR__USE_FOR_PROXY]) {
 		return PLUGIN_CONTINUE
 	}
@@ -185,12 +206,33 @@ public BypassGuard_RequestProxyStatus(pPlayer, szIP[], iMaxTries) {
 
 /* ----------------------- */
 
-func_MakeRequest(pPlayer, szIP[], iMaxTries, iCheckType) {
+public BypassGuard_RequestGeoData(pPlayer, const szIP[], iMaxTries) {
+	if(!g_eCvar[CVAR__USE_FOR_GEO]) {
+		return PLUGIN_CONTINUE
+	}
+
+	new eCheckCache[CHECK_CACHE_DATA_STRUCT]
+
+	// NOTE: 'bg_check_ip' command depends on this cache (instant return), see main plugin
+	if(TrieGetArray(g_tCheckCache, szIP, eCheckCache, sizeof(eCheckCache))) {
+		BypassGuard_SendGeoData( pPlayer, eCheckCache[CHECK_CACHE__COUNTRY_CODE],
+			eCheckCache[CHECK_CACHE__COUNTRY_NAME], .bSuccess = true );
+
+		return PLUGIN_HANDLED
+	}
+
+	func_MakeRequest(pPlayer, szIP, iMaxTries, CHECK_TYPE__GEO)
+	return PLUGIN_HANDLED
+}
+
+/* ----------------------- */
+
+func_MakeRequest(pPlayer, const szIP[], iMaxTries, iCheckType) {
 	new iDataID = func_GetCheckID()
 
 	new eExtData[CHECK_EXT_DATA_STRUCT]
 
-	new iCurrentKey = func_GetCurrentKey()
+	new iCurrentKey = g_eCvar[CVAR__CURRENT_KEY]
 
 	eExtData[CHECK_EXT_DATA__TYPE] = iCheckType
 	eExtData[CHECK_EXT_DATA__CHECK_TRIES] = iMaxTries
@@ -326,6 +368,20 @@ func_AgregateCheckResponse(pPlayer, iDataID, eExtData[CHECK_EXT_DATA_STRUCT]) {
 	new iProxy = grip_json_get_number(hProxy)
 	grip_destroy_json_value(hProxy)
 
+	new GripJSONValue:hCountryName = grip_json_object_get_value(hResponceBody, "countryName")
+	grip_json_get_string(hCountryName, eCheckCache[CHECK_CACHE__COUNTRY_NAME], chx(eCheckCache[CHECK_CACHE__COUNTRY_NAME]))
+	grip_destroy_json_value(hCountryName)
+	if(!eCheckCache[CHECK_CACHE__COUNTRY_NAME][0]) {
+		copy(eCheckCache[CHECK_CACHE__COUNTRY_NAME], chx(eCheckCache[CHECK_CACHE__COUNTRY_NAME]), _NA_)
+	}
+
+	new GripJSONValue:hCountryCode = grip_json_object_get_value(hResponceBody, "countryCode")
+	grip_json_get_string(hCountryCode, eCheckCache[CHECK_CACHE__COUNTRY_CODE], chx(eCheckCache[CHECK_CACHE__COUNTRY_CODE]))
+	grip_destroy_json_value(hCountryCode)
+	if(!eCheckCache[CHECK_CACHE__COUNTRY_CODE][0]) {
+		copy(eCheckCache[CHECK_CACHE__COUNTRY_CODE], chx(eCheckCache[CHECK_CACHE__COUNTRY_CODE]), _NA_)
+	}
+
 	if(iProxy == 1 || (g_eCvar[CVAR__BAN_SUSPICIOUS] && iProxy == 2)) {
 		eCheckCache[CHECK_CACHE__IS_PROXY] = true
 	}
@@ -334,13 +390,21 @@ func_AgregateCheckResponse(pPlayer, iDataID, eExtData[CHECK_EXT_DATA_STRUCT]) {
 
 	grip_destroy_json_value(hResponceBody)
 
-	if(pPlayer) {
-		if(eExtData[CHECK_EXT_DATA__TYPE] == CHECK_TYPE__AS) {
+	if(!pPlayer) {
+		return
+	}
+
+	switch(eExtData[CHECK_EXT_DATA__TYPE]) {
+		case CHECK_TYPE__AS: {
 			BypassGuard_SendAsInfo( pPlayer, eCheckCache[CHECK_CACHE__AS],
 				eCheckCache[CHECK_CACHE__DESC], .bSuccess = true );
 		}
-		else { // CHECK_TYPE__PROXY
+		case CHECK_TYPE__PROXY: {
 			BypassGuard_SendProxyStatus(pPlayer, eCheckCache[CHECK_CACHE__IS_PROXY], .bSuccess = true)
+		}
+		case CHECK_TYPE__GEO: {
+			BypassGuard_SendGeoData( pPlayer, eCheckCache[CHECK_CACHE__COUNTRY_CODE],
+				eCheckCache[CHECK_CACHE__COUNTRY_NAME], .bSuccess = true );
 		}
 	}
 }
@@ -350,7 +414,8 @@ func_AgregateCheckResponse(pPlayer, iDataID, eExtData[CHECK_EXT_DATA_STRUCT]) {
 bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT], iDataID) {
 	static const szCheckType[CHECK_TYPE_ENUM][] = {
 		"AS number",
-		"proxy status"
+		"proxy status",
+		"country info"
 	}
 
 	if(!pPlayer || --eExtData[CHECK_EXT_DATA__CHECK_TRIES] == 0) {
@@ -358,11 +423,16 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT], iDataID) {
 			szCheckType[ eExtData[CHECK_EXT_DATA__TYPE] ], eExtData[CHECK_EXT_DATA__IP] ) );
 
 		if(pPlayer) {
-			if(eExtData[CHECK_EXT_DATA__TYPE] == CHECK_TYPE__AS) {
-				BypassGuard_SendAsInfo(pPlayer, .szAsNumber = "", .szDesc = "", .bSuccess = false)
-			}
-			else { // CHECK_TYPE__PROXY
-				BypassGuard_SendProxyStatus(pPlayer, .IsProxy = false, .bSuccess = false)
+			switch(eExtData[CHECK_EXT_DATA__TYPE]) {
+				case CHECK_TYPE__AS: {
+					BypassGuard_SendAsInfo(pPlayer, .szAsNumber = "", .szDesc = "", .bSuccess = false)
+				}
+				case CHECK_TYPE__PROXY: {
+					BypassGuard_SendProxyStatus(pPlayer, .IsProxy = false, .bSuccess = false)
+				}
+				case CHECK_TYPE__GEO: {
+					BypassGuard_SendGeoData(pPlayer, _NA_, _NA_, .bSuccess = false)
+				}
 			}
 		}
 
@@ -372,7 +442,7 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT], iDataID) {
 
 	// else ->
 
-	new iCurrentKey = func_GetCurrentKey()
+	new iCurrentKey = g_eCvar[CVAR__CURRENT_KEY]
 
 	eExtData[CHECK_EXT_DATA__KEY_NUMBER] = iCurrentKey
 
@@ -392,40 +462,26 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT], iDataID) {
 
 /* ----------------------- */
 
-func_GetCurrentKey() {
-	if(!g_pCvarCurrKey) {
-		return 0
-	}
-
-	if(g_eCvar[CVAR__CURRENT_KEY] >= g_iLoadedKeys) {
-		set_pcvar_num(g_pCvarCurrKey, 0)
-		return 0
-	}
-
-	return g_eCvar[CVAR__CURRENT_KEY]
-}
-
-/* ----------------------- */
-
 func_TrySwitchToNextKey() {
-	if(g_pCvarCurrKey && g_iLoadedKeys > 1) {
+	if(g_iLoadedKeys > 1) {
 		new iCurrentKey = g_eCvar[CVAR__CURRENT_KEY]
 		new iNewKey
 
 		if(iCurrentKey < g_iLoadedKeys - 1) {
 			iNewKey = iCurrentKey + 1
-			set_pcvar_num(g_pCvarCurrKey, iNewKey)
+			func_SetCurrentKey(iNewKey)
 		}
 		else {
-			set_pcvar_num(g_pCvarCurrKey, 0)
+			func_SetCurrentKey(0)
 		}
 
-		BypassGuard_LogError( fmt( "[Error] Request limit for API key '%i', switching to API key '%i' of '%i'",
+		BypassGuard_LogError( fmt( "[Notice] Request limit for API key '%i', switching to API key '%i' of '%i'",
 			iCurrentKey + 1, iNewKey + 1, g_iLoadedKeys ) );
+
+		return
 	}
-	else {
-		BypassGuard_LogError( fmt("[Error] Request limit reached, and no more available API keys!") )
-	}
+
+	BypassGuard_LogError( fmt("[Error] Request limit reached, and no more available API keys!") )
 }
 
 /* ----------------------- */
@@ -457,7 +513,8 @@ func_LoadApiKeys() {
 			"; Ключи к API iphub'а. Зарегистрируйтесь на https://iphub.info/ , получите бесплатный ключ (1000 проверок/сутки), и введите его сюда^n\
 			; При необходимости вы можете указать несколько ключей (по 1 ключу на строку)^n\
 			; API-keys for iphub. Register at https://iphub.info/ , get free key (1000 checks/day), and set it here^n\
-			; You can set multiple keys if you need to (1 key per row)"
+			; You can set multiple keys if you need to (1 key per row)^n\
+			;"
 		);
 
 		fclose(hFile)
@@ -483,6 +540,11 @@ func_LoadApiKeys() {
 	}
 
 	fclose(hFile)
+
+	if(!g_iLoadedKeys) {
+		BypassGuard_LogError( fmt("[Error] No API keys loaded, you need to fill '%s'", KEY_FILE_NAME) )
+		set_fail_state("No API keys loaded, you need to fill '%s'", KEY_FILE_NAME)
+	}
 }
 
 /* ----------------------- */
