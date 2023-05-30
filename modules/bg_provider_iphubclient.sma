@@ -30,15 +30,24 @@
 		* Открытый релиз
 	1.1 (22.11.2021):
 		* Уход от логики с кваром-указателем # ключа и OnConfigsExecuted() в сторону localinfo
+	1.2 (30.05.2023):
+		* Актуализация API
+		* Незначительные улучшения
 */
 
-new const PLUGIN_VERSION[] = "1.1"
+new const PLUGIN_VERSION[] = "1.2"
 
 /* ----------------------- */
 
-#define AUTO_CFG // Создавать конфиг с кварами в 'configs/plugins', и запускать его ?
+// Create config with cvars in 'configs/plugins' and execute it?
+//
+// Создавать конфиг с кварами в 'configs/plugins', и запускать его ?
+#define AUTO_CFG
 
-const MAX_KEYS = 5 // Макс. кол-во API-ключей. Увеличить при необходимости.
+// Max number of API keys. Increase if you need to.
+//
+// Макс. кол-во API-ключей. Увеличить при необходимости.
+const MAX_KEYS = 10
 
 new const KEY_FILE_NAME[] = "iphub_api_keys.ini"
 
@@ -120,14 +129,14 @@ public plugin_init() {
 		g_eCvar[CVAR__USE_FOR_PROXY]
 	);
 
-	bind_pcvar_num( create_cvar("bg_iphubclient_use_for_geo", "0",
+	bind_pcvar_num( create_cvar("bg_iphubclient_use_for_geo", "1",
 		.description = "Use this provider for country checking?^n\
 		Set this cvar to 0 if you use another plugin for that purpose"),
 		g_eCvar[CVAR__USE_FOR_GEO]
 	);
 
 	bind_pcvar_num( create_cvar("bg_iphubclient_ban_suspicious", "0",
-		.description = "Count suspicious IPs as proxy (can bring false detections)?^n\
+		.description = "Consider suspicious IPs as proxy (can bring false detections) ?^n\
 		Has no effect if 'bg_iphub_use_for_proxy' is set to 0"),
 		g_eCvar[CVAR__BAN_SUSPICIOUS]
 	);
@@ -157,7 +166,7 @@ func_SetCurrentKey(iValue) {
 
 /* ----------------------- */
 
-public BypassGuard_RequestAsInfo(pPlayer, szIP[], iMaxTries) {
+public BypassGuard_RequestAsInfo(pPlayer, const szIP[], iMaxTries) {
 	if(!g_eCvar[CVAR__USE_FOR_AS]) {
 		return PLUGIN_CONTINUE
 	}
@@ -178,7 +187,7 @@ public BypassGuard_RequestAsInfo(pPlayer, szIP[], iMaxTries) {
 
 /* ----------------------- */
 
-public BypassGuard_RequestProxyStatus(pPlayer, szIP[], iMaxTries) {
+public BypassGuard_RequestProxyStatus(pPlayer, const szIP[], iMaxTries) {
 	if(!g_eCvar[CVAR__USE_FOR_PROXY]) {
 		return PLUGIN_CONTINUE
 	}
@@ -197,7 +206,7 @@ public BypassGuard_RequestProxyStatus(pPlayer, szIP[], iMaxTries) {
 
 /* ----------------------- */
 
-public BypassGuard_RequestGeoData(pPlayer, szIP[], iMaxTries) {
+public BypassGuard_RequestGeoData(pPlayer, const szIP[], iMaxTries) {
 	if(!g_eCvar[CVAR__USE_FOR_GEO]) {
 		return PLUGIN_CONTINUE
 	}
@@ -218,7 +227,7 @@ public BypassGuard_RequestGeoData(pPlayer, szIP[], iMaxTries) {
 
 /* ----------------------- */
 
-func_MakeRequest(pPlayer, szIP[], iMaxTries, iCheckType) {
+func_MakeRequest(pPlayer, const szIP[], iMaxTries, iCheckType) {
 	new iCurrentKey = g_eCvar[CVAR__CURRENT_KEY]
 
 	new eExtData[CHECK_EXT_DATA_STRUCT]
@@ -347,8 +356,7 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT]) {
 					BypassGuard_SendProxyStatus(pPlayer, .IsProxy = false, .bSuccess = false)
 				}
 				case CHECK_TYPE__GEO: {
-					// TODO: fix api description (make buffers const) and remove fmt()
-					BypassGuard_SendGeoData(pPlayer, fmt("%s", _NA_), fmt("%s", _NA_), .bSuccess = false)
+					BypassGuard_SendGeoData(pPlayer, _NA_, _NA_, .bSuccess = false)
 				}
 			}
 		}
@@ -386,7 +394,7 @@ bool:func_TrySwitchToNextKey() {
 			func_SetCurrentKey(0)
 		}
 
-		BypassGuard_LogError( fmt( "[Error] Request limit for API key '%i', switching to API key '%i' of '%i'",
+		BypassGuard_LogError( fmt( "[Notice] Request limit for API key '%i', switching to API key '%i' of '%i'",
 			iCurrentKey + 1, iNewKey + 1, g_iLoadedKeys ) );
 
 		return true
@@ -425,7 +433,8 @@ func_LoadApiKeys() {
 			"; Ключи к API iphub'а. Зарегистрируйтесь на https://iphub.info/ , получите бесплатный ключ (1000 проверок/сутки), и введите его сюда^n\
 			; При необходимости вы можете указать несколько ключей (по 1 ключу на строку)^n\
 			; API-keys for iphub. Register at https://iphub.info/ , get free key (1000 checks/day), and set it here^n\
-			; You can set multiple keys if you need to (1 key per row)"
+			; You can set multiple keys if you need to (1 key per row)^n\
+			;"
 		);
 
 		fclose(hFile)
@@ -451,6 +460,11 @@ func_LoadApiKeys() {
 	}
 
 	fclose(hFile)
+
+	if(!g_iLoadedKeys) {
+		BypassGuard_LogError( fmt("[Error] No API keys loaded, you need to fill '%s'", KEY_FILE_NAME) )
+		set_fail_state("No API keys loaded, you need to fill '%s'", KEY_FILE_NAME)
+	}
 }
 
 /* ----------------------- */
