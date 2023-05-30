@@ -2301,6 +2301,7 @@ public plugin_natives() {
 	register_native("BypassGuard_LogError", "_BypassGuard_LogError")
 	register_native("BypassGuard_GetPluginFolderName", "_BypassGuard_GetPluginFolderName")
 	register_native("BypassGuard_GetPlayerData", "_BypassGuard_GetPlayerData")
+	register_native("BypassGuard_IsPlayerChecked", "_BypassGuard_IsPlayerChecked")
 }
 
 /* -------------------- */
@@ -2461,4 +2462,11 @@ public _BypassGuard_GetPlayerData(iPluginID, iParamCount) {
 	set_array(data_array, g_ePlayerData, sizeof(g_ePlayerData))
 
 	return 1
+}
+
+/* -------------------- */
+
+public bool:_BypassGuard_IsPlayerChecked(iPluginID, iParamCount) {
+	enum { player = 1 }
+	return g_bCheckComplete[ get_param(player) ]
 }

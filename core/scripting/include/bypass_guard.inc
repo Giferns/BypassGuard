@@ -189,3 +189,12 @@ native BypassGuard_GetPluginFolderName(szBuffer[], iMaxLen);
  *								        -1 if player is not connected
  */
 native BypassGuard_GetPlayerData(pPlayer, ePlayerData[BG_PLAYER_DATA_STRUCT]);
+
+/**
+ * Returns if the player is checked.
+ *
+ * @param pPlayer			    Player index
+ *
+ * @return          true if player is checked, false otherwise
+ */
+native bool:BypassGuard_IsPlayerChecked(pPlayer);
