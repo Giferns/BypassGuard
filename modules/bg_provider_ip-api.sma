@@ -47,8 +47,6 @@ new const PLUGIN_VERSION[] = "0.3"
 
 #define chx charsmax
 
-new const _NA_[] = "N/A"
-
 enum _:CHECK_TYPE_ENUM {
 	CHECK_TYPE__AS,
 	CHECK_TYPE__PROXY,

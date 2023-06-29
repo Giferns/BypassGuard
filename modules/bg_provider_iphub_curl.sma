@@ -85,8 +85,6 @@ new const DIR_NAME[] = "bypass_guard" // 'data/%s'
 #define MAX_API_KEY_LEN 64
 #define CURL_BUFFER_SIZE 512
 
-new const _NA_[] = "N/A"
-
 enum _:CHECK_TYPE_ENUM {
 	CHECK_TYPE__AS,
 	CHECK_TYPE__PROXY,

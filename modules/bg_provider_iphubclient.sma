@@ -69,8 +69,6 @@ new const KEY_FILE_NAME[] = "iphub_api_keys.ini"
 #define REQUEST_SUCCESSFUL 200
 #define KEY_EXPIRED 429
 
-new const _NA_[] = "N/A"
-
 enum _:CHECK_TYPE_ENUM {
 	CHECK_TYPE__AS,
 	CHECK_TYPE__PROXY,
