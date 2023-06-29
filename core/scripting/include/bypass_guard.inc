@@ -21,6 +21,8 @@
 #define MAX_ACCESS_EXT_LEN 128
 #define INVALID_ACCESS_TYPE -1
 
+new const _NA_[] = "N/A" // don't change this!
+
 // Note that this is not bits. If you will need to use this, you probably will need to use CheckBit/SetBit/ClearBit (see in bypass_guard.sma)
 // or manually shift this values via (1<<VALUE)
 enum _:BG_CHECK_FAIL_FLAGS {

@@ -226,8 +226,6 @@ new const LOG_NAME[LOG_ENUM][] = {
 
 #define MAX_COMMENT_LEN 48
 
-new const _NA_[] = "N/A" // don't change this!
-
 /* --- */
 
 enum {
