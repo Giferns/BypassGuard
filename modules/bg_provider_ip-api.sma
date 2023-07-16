@@ -24,9 +24,11 @@
 		* Актуализация API
 		* Добавлен квар 'bg_ipapi_use_for_geo'
 		* Добавлен квар 'bg_ipapi_hosting_as_proxy'
+	0.3 (16.07.2023):
+		* Бамп версии под совместимость с новой версией ядра
 */
 
-new const PLUGIN_VERSION[] = "0.2"
+new const PLUGIN_VERSION[] = "0.3"
 
 /* ----------------------- */
 
