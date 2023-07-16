@@ -166,9 +166,12 @@
 		* Исправлен баг с использованием команды 'bg_check_ip' из-под клиента игры (отсутствие ответа). Спасибо NordicWarrior
 	1.0.6 (30.05.2023):
 		* Расширение API (внимание, требуется так же обновить все плагины-провайдеры данных!)
+	1.0.7 (16.07.2023):
+		* Улучшение логики порядка проверок (запрос геоданных теперь последовательный, а не параллельный)
+		* Квару 'bypass_guard_country_check_mode' добавлен режим -1 (запрашивать данные, но пропускать проверку страны)
 */
 
-new const PLUGIN_VERSION[] = "1.0.6"
+new const PLUGIN_VERSION[] = "1.0.7"
 
 /* ----------------------- */
 
@@ -260,14 +263,6 @@ enum _:AS_TRIE_STRUCT {
 	AST__ARRAY_POS
 }
 
-enum {
-	CHECK_STEP__NO,
-	CHECK_STEP__AS,
-	CHECK_STEP__PROXY,
-	CHECK_STEP__COUNTRY,
-	CHECK_STEP__DONE
-}
-
 enum _:PCVAR_ENUM {
 	PCVAR__IMMUNITY_FLAGS,
 	PCVAR__AMX_DEFAULT_ACCESS,
@@ -318,8 +313,7 @@ new bool:g_bGotInfo
 new g_pRequestAdmin
 new g_szCmdIP[MAX_IP_LENGTH]
 new g_bitPlayerFailFlags[MAX_PLAYERS + 1]
-new g_iCheckStep[MAX_PLAYERS + 1]
-new g_bitGotCountry
+new g_bitSkipGeo
 new g_bitKickFailCheckFlags
 new bool:g_bCheckComplete[MAX_PLAYERS + 1]
 new g_ePlayerData[BG_PLAYER_DATA_STRUCT]
@@ -360,9 +354,10 @@ RegCvars() {
 		.description = "Allow steam players to join without checks?"), g_eCvar[CVAR__ALLOW_STEAM] );
 
 	bind_pcvar_num( create_cvar("bypass_guard_country_check_mode", "1",
-		.has_min = true, .min_val = 0.0,
+		.has_min = true, .min_val = -1.0,
 		.has_max = true, .max_val = 2.0,
 		.description = "Defines country check mode:^n\
+		-1 - Request geodata but skip country check^n\
 		0 - Don't check country (country provider will not be used at all)^n\
 		1 - Whitelist^n\
 		2 - Blacklist"),
@@ -522,7 +517,7 @@ public plugin_cfg() {
 /* -------------------- */
 
 public client_putinserver(pPlayer) {
-	ClearBit(g_bitGotCountry, pPlayer);
+	ClearBit(g_bitSkipGeo, pPlayer);
 	g_bitPlayerFailFlags[pPlayer] = 0
 
 	g_iAccessType[pPlayer] = INVALID_ACCESS_TYPE
@@ -532,7 +527,6 @@ public client_putinserver(pPlayer) {
 	g_szDesc[pPlayer] = _NA_
 	g_szCode[pPlayer] = _NA_
 	g_szCountry[pPlayer] = _NA_
-	g_iCheckStep[pPlayer] = CHECK_STEP__NO
 
 	get_user_ip(pPlayer, g_szIP[pPlayer], chx(g_szIP[]), .without_port = 1)
 	get_user_ip(pPlayer, g_szAddress[pPlayer], chx(g_szAddress[]), .without_port = 0)
@@ -547,10 +541,6 @@ public client_putinserver(pPlayer) {
 
 	if(!g_eCvar[CVAR__PLUGIN_ENABLED]) {
 		return
-	}
-
-	if(g_eCvar[CVAR__COUNTRY_CHECK_MODE]) {
-		func_RequestGeoData(pPlayer, g_szIP[pPlayer])
 	}
 
 	set_task(g_eCvar[CVAR_F__CHECK_DELAY], "task_CheckPlayer_Step1", get_user_userid(pPlayer))
@@ -600,6 +590,19 @@ public task_CheckPlayer_Step1(iUserID) {
 		return
 	}
 
+	if(g_eCvar[CVAR__COUNTRY_CHECK_MODE]) {
+		// provider plugin -> _BypassGuard_SendGeoData() -> func_CheckPlayer_Step2()
+		func_RequestGeoData(pPlayer, g_szIP[pPlayer])
+		return
+	}
+
+	SetBit(g_bitSkipGeo, pPlayer);
+	func_CheckPlayer_Step2(pPlayer)
+}
+
+/* -------------------- */
+
+func_CheckPlayer_Step2(pPlayer) {
 	if(g_eCvar[CVAR__ALLOW_STEAM] && is_user_steam(pPlayer)) {
 		g_iAccessType[pPlayer] = ALLOW_TYPE__STEAM
 		g_szAccess[pPlayer] = "Steam"
@@ -675,9 +678,7 @@ public task_CheckPlayer_Step1(iUserID) {
 		return
 	}
 
-	g_iCheckStep[pPlayer] = CHECK_STEP__AS
-
-	// provider plugin -> _BypassGuard_SendAsInfo() -> func_CheckPlayer_Step2()
+	// provider plugin -> _BypassGuard_SendAsInfo() -> func_CheckPlayer_Step3()
 	new iRet; ExecuteForward(g_fwdRequestAsInfo, iRet, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
 
 	if(!iRet) {
@@ -694,7 +695,7 @@ FwdError(const szFwdName[]) {
 
 /* -------------------- */
 
-func_CheckPlayer_Step2(pPlayer) {
+func_CheckPlayer_Step3(pPlayer) {
 	new eAsTrieData[AS_DATA_STRUCT]
 	TrieGetArray(g_tAsNumbers, g_szAsNumber[pPlayer], eAsTrieData, sizeof(eAsTrieData))
 
@@ -734,9 +735,7 @@ func_CheckPlayer_Step2(pPlayer) {
 		return
 	}
 
-	g_iCheckStep[pPlayer] = CHECK_STEP__PROXY
-
-	// provider plugin -> _BypassGuard_SendProxyStatus() -> func_CheckPlayer_Step3()
+	// provider plugin -> _BypassGuard_SendProxyStatus() -> func_CheckPlayer_Step4()
 	new iRet; ExecuteForward(g_fwdRequestProxyStatus, iRet, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
 
 	if(!iRet) {
@@ -746,23 +745,17 @@ func_CheckPlayer_Step2(pPlayer) {
 
 /* -------------------- */
 
-func_CheckPlayer_Step3(pPlayer, bool:bIsProxy) {
+func_CheckPlayer_Step4(pPlayer, bool:bIsProxy) {
 	if(bIsProxy) {
 		func_KickPlayer(pPlayer, KICK_TYPE__PROXY_DETECTED)
 		return
 	}
 
-	g_iCheckStep[pPlayer] = CHECK_STEP__COUNTRY
-
-	// if answer from country provider already received
-	if(CheckBit(g_bitGotCountry, pPlayer) || !g_eCvar[CVAR__COUNTRY_CHECK_MODE]) {
-		func_CheckPlayer_Step4(pPlayer)
+	if(CheckBit(g_bitSkipGeo, pPlayer) || g_eCvar[CVAR__COUNTRY_CHECK_MODE] <= 0) {
+		AllowPlayerByChecks(pPlayer)
+		return
 	}
-}
 
-/* -------------------- */
-
-func_CheckPlayer_Step4(pPlayer) {
 	if(CheckBit(g_bitKickFailCheckFlags, BG_CHECK_FAIL__COUNTRY) && CheckBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)) {
 		ClearBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)
 		func_KickPlayer(pPlayer, KICK_TYPE__COUNTRY_CHECK_FAIL)
@@ -784,8 +777,12 @@ func_CheckPlayer_Step4(pPlayer) {
 		}
 	}
 
-	g_iCheckStep[pPlayer] = CHECK_STEP__DONE
+	AllowPlayerByChecks(pPlayer)
+}
 
+/* -------------------- */
+
+AllowPlayerByChecks(pPlayer) {
 	g_iAccessType[pPlayer] = ALLOW_TYPE__CHECK
 	g_szAccess[pPlayer] = "Check"
 
@@ -2313,15 +2310,12 @@ public _BypassGuard_SendGeoData(iPluginID, iParamCount) {
 		get_string(code, g_szCode[pPlayer], chx(g_szCode[]))
 		get_string(country, g_szCountry[pPlayer], chx(g_szCountry[]))
 	}
-	else {
+	else if(pPlayer) {
 		SetBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__COUNTRY)
 	}
 
-	SetBit(g_bitGotCountry, pPlayer)
-
-	// if func_CheckPlayer_Step3() already has been called, but for that moment country provider not answered yet
-	if(g_iCheckStep[pPlayer] == CHECK_STEP__COUNTRY) {
-		func_CheckPlayer_Step4(pPlayer)
+	if(pPlayer) {
+		func_CheckPlayer_Step2(pPlayer)
 	}
 }
 
@@ -2380,7 +2374,7 @@ public _BypassGuard_SendAsInfo(iPluginID, iParamCount) {
 		}
 	}
 
-	func_CheckPlayer_Step2(pPlayer)
+	func_CheckPlayer_Step3(pPlayer)
 }
 
 /* -------------------- */
@@ -2419,7 +2413,7 @@ public _BypassGuard_SendProxyStatus(iPluginID, iParamCount) {
 		SetBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__PROXY)
 	}
 
-	func_CheckPlayer_Step3(pPlayer, bool:get_param(is_proxy))
+	func_CheckPlayer_Step4(pPlayer, bool:get_param(is_proxy))
 }
 
 /* -------------------- */
