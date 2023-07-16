@@ -33,13 +33,9 @@
 	1.2 (30.05.2023):
 		* Актуализация API
 		* Незначительные улучшения
-	0.3 (26.06.2023):
-		* Добавлена очередь ожидания поступления данных (g_bitDataQueue), дабы избежать двойного обращения к API,
-			т.к. запрос гео отправляется сразу в putinserver, а запрос AS чуть позже (пауза по квару bypass_guard_check_delay.
-			При этом, если на момент запроса AS информация по гео ещё не поступила в кеш, то будет совершён повторный запрос
 */
 
-new const PLUGIN_VERSION[] = "1.3"
+new const PLUGIN_VERSION[] = "1.2"
 
 /* ----------------------- */
 
@@ -104,18 +100,12 @@ enum _:CVAR_ENUM {
 	CVAR__CURRENT_KEY
 }
 
-enum (<<=1) {
-	DATA_QUEUE__GEO = 1,
-	DATA_QUEUE__AS
-}
-
 new g_eCvar[CVAR_ENUM]
 new bool:g_bPluginEnded
 new Trie:g_tCheckExtData
 new Trie:g_tCheckCache
 new g_szApiKey[MAX_KEYS][MAX_API_KEY_LEN]
 new g_iLoadedKeys
-new g_bitDataQueue[MAX_PLAYERS + 1]
 
 /* ----------------------- */
 
@@ -189,11 +179,6 @@ public BypassGuard_RequestAsInfo(pPlayer, const szIP[], iMaxTries) {
 		return PLUGIN_HANDLED
 	}
 
-	if(g_bitDataQueue[pPlayer] & DATA_QUEUE__GEO) {
-		g_bitDataQueue[pPlayer] |= DATA_QUEUE__AS
-		return PLUGIN_HANDLED
-	}
-
 	func_MakeRequest(pPlayer, szIP, iMaxTries, CHECK_TYPE__AS)
 	return PLUGIN_HANDLED
 }
@@ -232,10 +217,6 @@ public BypassGuard_RequestGeoData(pPlayer, const szIP[], iMaxTries) {
 			eCheckCache[CHECK_CACHE__COUNTRY_NAME], .bSuccess = true );
 
 		return PLUGIN_HANDLED
-	}
-
-	if(pPlayer) {
-		g_bitDataQueue[pPlayer] |= DATA_QUEUE__GEO
 	}
 
 	func_MakeRequest(pPlayer, szIP, iMaxTries, CHECK_TYPE__GEO)
@@ -336,8 +317,6 @@ public iphub_response_received(request, response[IPHubData], status) {
 
 	switch(eExtData[CHECK_EXT_DATA__TYPE]) {
 		case CHECK_TYPE__AS: {
-			g_bitDataQueue[pPlayer] &= ~DATA_QUEUE__AS
-
 			BypassGuard_SendAsInfo( pPlayer, eCheckCache[CHECK_CACHE__AS],
 				eCheckCache[CHECK_CACHE__DESC], .bSuccess = true );
 		}
@@ -345,17 +324,8 @@ public iphub_response_received(request, response[IPHubData], status) {
 			BypassGuard_SendProxyStatus(pPlayer, eCheckCache[CHECK_CACHE__IS_PROXY], .bSuccess = true)
 		}
 		case CHECK_TYPE__GEO: {
-			g_bitDataQueue[pPlayer] &= ~DATA_QUEUE__GEO
-
 			BypassGuard_SendGeoData( pPlayer, eCheckCache[CHECK_CACHE__COUNTRY_CODE],
 				eCheckCache[CHECK_CACHE__COUNTRY_NAME], .bSuccess = true );
-
-			if(g_bitDataQueue[pPlayer] & DATA_QUEUE__AS) {
-				g_bitDataQueue[pPlayer] &= ~DATA_QUEUE__AS
-
-				BypassGuard_SendAsInfo( pPlayer, eCheckCache[CHECK_CACHE__AS],
-					eCheckCache[CHECK_CACHE__DESC], .bSuccess = true );
-			}
 		}
 	}
 
@@ -378,23 +348,13 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT]) {
 		if(pPlayer) {
 			switch(eExtData[CHECK_EXT_DATA__TYPE]) {
 				case CHECK_TYPE__AS: {
-					g_bitDataQueue[pPlayer] &= ~DATA_QUEUE__AS
-
 					BypassGuard_SendAsInfo(pPlayer, .szAsNumber = "", .szDesc = "", .bSuccess = false)
 				}
 				case CHECK_TYPE__PROXY: {
 					BypassGuard_SendProxyStatus(pPlayer, .IsProxy = false, .bSuccess = false)
 				}
 				case CHECK_TYPE__GEO: {
-					g_bitDataQueue[pPlayer] &= ~DATA_QUEUE__GEO
-
 					BypassGuard_SendGeoData(pPlayer, _NA_, _NA_, .bSuccess = false)
-
-					if(g_bitDataQueue[pPlayer] & DATA_QUEUE__AS) {
-						g_bitDataQueue[pPlayer] &= ~DATA_QUEUE__AS
-
-						BypassGuard_SendAsInfo(pPlayer, .szAsNumber = "", .szDesc = "", .bSuccess = false)
-					}
 				}
 			}
 		}
@@ -503,12 +463,6 @@ func_LoadApiKeys() {
 		BypassGuard_LogError( fmt("[Error] No API keys loaded, you need to fill '%s'", KEY_FILE_NAME) )
 		set_fail_state("No API keys loaded, you need to fill '%s'", KEY_FILE_NAME)
 	}
-}
-
-/* ----------------------- */
-
-public client_disconnected(pPlayer) {
-	g_bitDataQueue[pPlayer] = 0
 }
 
 /* ----------------------- */
