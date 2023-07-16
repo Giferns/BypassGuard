@@ -169,9 +169,11 @@
 	1.0.7 (16.07.2023):
 		* Улучшение логики порядка проверок (запрос геоданных теперь последовательный, а не параллельный)
 		* Квару 'bypass_guard_country_check_mode' добавлен режим -1 (запрашивать данные, но пропускать проверку страны)
+	1.0.8 (16.07.2023):
+		* Расширение API под совместимость с предстоящим плагином Supervisor
 */
 
-new const PLUGIN_VERSION[] = "1.0.7"
+new const PLUGIN_VERSION[] = "1.0.8"
 
 /* ----------------------- */
 
@@ -309,6 +311,7 @@ new g_fwdRequestAsInfo
 new g_fwdRequestProxyStatus
 new g_fwdRequestGeoData
 new g_fwdPlayerCheckComplete
+new g_fwdRequestSupervising
 new bool:g_bGotInfo
 new g_pRequestAdmin
 new g_szCmdIP[MAX_IP_LENGTH]
@@ -317,6 +320,7 @@ new g_bitSkipGeo
 new g_bitKickFailCheckFlags
 new bool:g_bCheckComplete[MAX_PLAYERS + 1]
 new g_ePlayerData[BG_PLAYER_DATA_STRUCT]
+new g_szSvStatus[MAX_PLAYERS + 1][MAX_SV_STATUS_LEN]
 
 /* -------------------- */
 
@@ -435,6 +439,8 @@ public plugin_cfg() {
 
 	g_fwdRequestGeoData = CreateMultiForward("BypassGuard_RequestGeoData", ET_STOP, FP_CELL, FP_STRING, FP_CELL)
 
+	g_fwdRequestSupervising = CreateMultiForward("BypassGuard_RequestSupervising", ET_STOP, FP_CELL, FP_STRING)
+
 	g_fwdPlayerCheckComplete = CreateMultiForward("BypassGuard_PlayerCheckComplete", ET_IGNORE, FP_CELL, FP_CELL, FP_ARRAY)
 
 	/* --- */
@@ -527,6 +533,7 @@ public client_putinserver(pPlayer) {
 	g_szDesc[pPlayer] = _NA_
 	g_szCode[pPlayer] = _NA_
 	g_szCountry[pPlayer] = _NA_
+	g_szSvStatus[pPlayer] = _NA_
 
 	get_user_ip(pPlayer, g_szIP[pPlayer], chx(g_szIP[]), .without_port = 1)
 	get_user_ip(pPlayer, g_szAddress[pPlayer], chx(g_szAddress[]), .without_port = 0)
@@ -569,6 +576,7 @@ FormPlayerData(pPlayer, ePlayerData[BG_PLAYER_DATA_STRUCT]) {
 	copy(ePlayerData[BG_PDS__ACCESS], chx(ePlayerData[BG_PDS__ACCESS]), g_szAccess[pPlayer])
 	copy(ePlayerData[BG_PDS__ACCESS_EXT], chx(ePlayerData[BG_PDS__ACCESS_EXT]), g_szAccessExt[pPlayer])
 	ePlayerData[BG_PDS__CHECK_FAIL_FLAGS] = g_bitPlayerFailFlags[pPlayer]
+	copy(ePlayerData[BG_PDS__SV_STATUS], chx(ePlayerData[BG_PDS__SV_STATUS]), g_szSvStatus[pPlayer])
 }
 
 /* -------------------- */
@@ -752,7 +760,7 @@ func_CheckPlayer_Step4(pPlayer, bool:bIsProxy) {
 	}
 
 	if(CheckBit(g_bitSkipGeo, pPlayer) || g_eCvar[CVAR__COUNTRY_CHECK_MODE] <= 0) {
-		AllowPlayerByChecks(pPlayer)
+		func_CheckPlayer_Step5(pPlayer)
 		return
 	}
 
@@ -777,7 +785,29 @@ func_CheckPlayer_Step4(pPlayer, bool:bIsProxy) {
 		}
 	}
 
-	AllowPlayerByChecks(pPlayer)
+	func_CheckPlayer_Step5(pPlayer)
+}
+
+/* -------------------- */
+
+func_CheckPlayer_Step5(pPlayer) {
+	// provider plugin -> _BypassGuard_SendSupervisingResult() -> func_CheckPlayer_Step6()
+	new iRet; ExecuteForward(g_fwdRequestSupervising, iRet, pPlayer, g_szAsNumber[pPlayer])
+
+	if(!iRet) {
+		AllowPlayerByChecks(pPlayer)
+	}
+}
+
+/* -------------------- */
+
+func_CheckPlayer_Step6(pPlayer, bool:bAllowConnect) {
+	if(bAllowConnect) {
+		AllowPlayerByChecks(pPlayer)
+		return
+	}
+
+	func_KickPlayer(pPlayer, KICK_TYPE__SUPERVISOR)
 }
 
 /* -------------------- */
@@ -786,8 +816,8 @@ AllowPlayerByChecks(pPlayer) {
 	g_iAccessType[pPlayer] = ALLOW_TYPE__CHECK
 	g_szAccess[pPlayer] = "Check"
 
-	log_to_file( g_eLogFile[LOG__ALLOW], "[%s] %n | %s | %s | %s | %s | %s | %s",
-		g_szAccess[pPlayer], pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], g_szAsNumber[pPlayer],
+	log_to_file( g_eLogFile[LOG__ALLOW], "[%s] [SV: %s] %n | %s | %s | %s | %s | %s | %s",
+		g_szAccess[pPlayer], g_szSvStatus[pPlayer], pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], g_szAsNumber[pPlayer],
 		g_szDesc[pPlayer], g_szCode[pPlayer], g_szCountry[pPlayer]
 	);
 
@@ -840,7 +870,8 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 		"Proxy/VPN",
 		"AS Check Fail",
 		"Proxy Check Fail",
-		"Country Check Fail"
+		"Country Check Fail",
+		"Supervisor"
 	}
 
 	g_iAccessType[pPlayer] = iKickType
@@ -848,8 +879,8 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 
 	new szMsg[320]
 
-	new iLen = formatex( szMsg, chx(szMsg), "[%s] %n | %s | %s",
-		KICK_TYPE[iKickType], pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer] );
+	new iLen = formatex( szMsg, chx(szMsg), "[%s] [SV: %s] %n | %s | %s",
+		KICK_TYPE[iKickType], g_szSvStatus[pPlayer], pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer] );
 
 	switch(iKickType) {
 		case KICK_TYPE__AS_BAN: {
@@ -2293,6 +2324,7 @@ public plugin_natives() {
 	register_native("BypassGuard_SendGeoData", "_BypassGuard_SendGeoData")
 	register_native("BypassGuard_SendAsInfo", "_BypassGuard_SendAsInfo")
 	register_native("BypassGuard_SendProxyStatus", "_BypassGuard_SendProxyStatus")
+	register_native("BypassGuard_SendSupervisingResult", "_BypassGuard_SendSupervisingResult")
 	register_native("BypassGuard_LogError", "_BypassGuard_LogError")
 	register_native("BypassGuard_GetPluginFolderName", "_BypassGuard_GetPluginFolderName")
 	register_native("BypassGuard_GetPlayerData", "_BypassGuard_GetPlayerData")
@@ -2414,6 +2446,17 @@ public _BypassGuard_SendProxyStatus(iPluginID, iParamCount) {
 	}
 
 	func_CheckPlayer_Step4(pPlayer, bool:get_param(is_proxy))
+}
+
+/* -------------------- */
+
+public _BypassGuard_SendSupervisingResult(iPluginID, iParamCount) {
+	enum { player = 1, allow_connect, sv_status }
+
+	new pPlayer = get_param(player)
+	get_string(sv_status, g_szSvStatus[pPlayer], charsmax(g_szSvStatus[]))
+
+	func_CheckPlayer_Step6(pPlayer, bool:get_param(allow_connect))
 }
 
 /* -------------------- */

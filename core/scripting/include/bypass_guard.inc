@@ -19,6 +19,7 @@
 #define MAX_RESPONSE_LEN 256
 #define MAX_ACCESS_LEN 32
 #define MAX_ACCESS_EXT_LEN 128
+#define MAX_SV_STATUS_LEN 64
 #define INVALID_ACCESS_TYPE -1
 
 new const _NA_[] = "N/A" // don't change this!
@@ -48,7 +49,8 @@ enum KICK_TYPE_ENUM {
 	KICK_TYPE__PROXY_DETECTED,
 	KICK_TYPE__AS_CHECK_FAIL,
 	KICK_TYPE__PROXY_CHECK_FAIL,
-	KICK_TYPE__COUNTRY_CHECK_FAIL
+	KICK_TYPE__COUNTRY_CHECK_FAIL,
+    KICK_TYPE__SUPERVISOR
 }
 
 enum _:BG_PLAYER_DATA_STRUCT {
@@ -59,7 +61,8 @@ enum _:BG_PLAYER_DATA_STRUCT {
     BG_PDS__ACCESS_TYPE, // Allow/deny access reason as integer (any value from ALLOW_TYPE_ENUM or KICK_TYPE_ENUM)
     BG_PDS__ACCESS[MAX_ACCESS_LEN], // Allow/deny access reason as string
     BG_PDS__ACCESS_EXT[MAX_ACCESS_EXT_LEN], // Access external data
-    BG_PDS__CHECK_FAIL_FLAGS // Bitsum of triggered check fail flags (see 'BG_CHECK_FAIL_FLAGS')
+    BG_PDS__CHECK_FAIL_FLAGS, // Bitsum of triggered check fail flags (see 'BG_CHECK_FAIL_FLAGS')
+    BG_PDS__SV_STATUS[MAX_SV_STATUS_LEN] // Supervisor status as string
 }
 
 /**
@@ -103,6 +106,19 @@ forward BypassGuard_RequestAsInfo(pPlayer, const szIP[], iMaxTries);
  *								        PLUGIN_CONTINUE to skip request (pass to other provider)
  */
 forward BypassGuard_RequestProxyStatus(pPlayer, const szIP[], iMaxTries);
+
+/**
+ * Called to check specified player in Supervisor.
+ *
+ * @note	Plugin that handles request MUST return PLUGIN_HANDLED
+ *
+ * @param pPlayer			Checking player index
+ * @param szAsNumber	Player AS number
+ *
+ * @return						PLUGIN_HANDLED to handle request (agregate it)
+ *								        PLUGIN_CONTINUE to skip request (pass to other provider)
+ */
+forward BypassGuard_RequestSupervising(pPlayer, const szAsNumber[MAX_AS_LEN]);
 
 /**
  * Called when checks chain is over, so player allowed to enter the server, or not.
@@ -158,6 +174,17 @@ native BypassGuard_SendAsInfo(pPlayer, const szAsNumber[], const szDesc[], bool:
  * @noreturn
  */
 native BypassGuard_SendProxyStatus(pPlayer, bool:IsProxy, bool:bSuccess);
+
+/**
+ * Sends supervising result to main plugin as reply to BypassGuard_RequestSupervising().
+ *
+ * @param pPlayer			    Player index
+ * @param bAllowConnect   Allow connect (true) or deny (false, so player will be kicked soon)
+ * @param szStatus              Supervising status as string
+ *
+ * @noreturn
+ */
+native BypassGuard_SendSupervisingResult(pPlayer, bool:bAllowConnect, const szStatus[MAX_SV_STATUS_LEN]);
 
 /**
  * Logs specified text to error log.
