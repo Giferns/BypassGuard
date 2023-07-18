@@ -27,8 +27,6 @@ new const PLUGIN_VERSION[] = "1.0"
 
 #define chx charsmax
 
-new const _NA_[] = "N/A"
-
 /* ----------------------- */
 
 public plugin_init() {
