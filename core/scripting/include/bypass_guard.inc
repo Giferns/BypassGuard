@@ -22,7 +22,7 @@
 #define MAX_SV_STATUS_LEN 64
 #define INVALID_ACCESS_TYPE -1
 
-new const _NA_[] = "N/A" // don't change this!
+stock const _NA_[] = "N/A" // don't change this!
 
 // Note that this is not bits. If you will need to use this, you probably will need to use CheckBit/SetBit/ClearBit (see in bypass_guard.sma)
 // or manually shift this values via (1<<VALUE)
