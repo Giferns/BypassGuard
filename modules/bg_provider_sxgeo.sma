@@ -35,7 +35,7 @@ public plugin_init() {
 
 /* ----------------------- */
 
-public BypassGuard_RequestGeoData(pPlayer, szIP[], iMaxTries) {
+public BypassGuard_RequestGeoData(pPlayer, const szIP[], iMaxTries) {
 	new szCode[MAX_CODE_LEN * 2], szCountry[MAX_COUNTRY_LEN]
 	func_GetCountryCode(szIP, szCode, chx(szCode))
 	func_GetCountryName(szIP, szCountry, chx(szCountry))
@@ -47,7 +47,7 @@ public BypassGuard_RequestGeoData(pPlayer, szIP[], iMaxTries) {
 
 /* -------------------- */
 
-func_GetCountryCode(szIP[], szBuffer[], iMaxLen) {
+func_GetCountryCode(const szIP[], szBuffer[], iMaxLen) {
 	new szCode[MAX_CODE_LEN]
 
 	if(sxgeo_region_code(szIP, szCode, chx(szCode))) {
@@ -60,7 +60,7 @@ func_GetCountryCode(szIP[], szBuffer[], iMaxLen) {
 
 /* -------------------- */
 
-func_GetCountryName(szIP[], szBuffer[], iMaxLen) {
+func_GetCountryName(const szIP[], szBuffer[], iMaxLen) {
 	if(!sxgeo_country(szIP, szBuffer, iMaxLen)) {
 		copy(szBuffer, iMaxLen, _NA_)
 	}
