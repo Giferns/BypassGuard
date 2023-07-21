@@ -4,6 +4,7 @@
 
 	Используемый модуль: geoip
 	Свежая база (amxmodx/data): http://geolite.maxmind.com/download/geoip/database/GeoLite2-Country.tar.gz
+	Свежая база (amxmodx/data): https://github.com/P3TERX/GeoLite.mmdb/releases
 
 	Использование:
 		1) Обновите базу
