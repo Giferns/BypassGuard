@@ -28,19 +28,19 @@
 			добавленное ограничение. Другими словами, забанив AS/IP игрока, который в данный момент находится
 			на сервере, вам необходимо кикнуть его самостоятельно.
 
-		* bg_as_blacklist_add <as number> "<comment>"
+		* bg_as_blacklist_add <as number> "<comment>"[optional]
 		* bg_as_blacklist_del <as number>
 		* bg_as_blacklist_show <page>
 
-		* bg_as_whitelist_add <as number> "<comment>"
+		* bg_as_whitelist_add <as number> "<comment>"[optional]
 		* bg_as_whitelist_del <as number>
 		* bg_as_whitelist_show <page>
 
-		* bg_ip_blacklist_add <start ip> <end ip> "<comment>"
+		* bg_ip_blacklist_add <start ip> <end ip> "<comment>"[optional]
 		* bg_ip_blacklist_del <start ip> <end ip>
 		* bg_ip_blacklist_show <page>
 
-		* bg_ip_whitelist_add <start ip> <end ip> "<comment>"
+		* bg_ip_whitelist_add <start ip> <end ip> "<comment>"[optional]
 		* bg_ip_whitelist_del <start ip> <end ip>
 		* bg_ip_whitelist_show <page>
 
