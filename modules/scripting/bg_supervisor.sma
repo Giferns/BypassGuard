@@ -1,9 +1,11 @@
 /* История обновлений:
 	0.1 (20.07.2023):
 		* Открытый релиз
+	0.2 (21.07.2023):
+		* Добавлена поддержка учёта банов [fork] Lite Bans (поддержка для кваров 'bg_sv_ignore_server_bans' и 'bg_sv_min_ban_time')
 */
 
-new const PLUGIN_VERSION[] = "0.1"
+new const PLUGIN_VERSION[] = "0.2"
 
 /* ----------------------- */
 
@@ -307,12 +309,12 @@ RegCvars() {
 	);
 
 	bind_cvar_num( "bg_sv_ignore_server_bans", "1",
-		.desc = "If enabled, bans from server will not affect ban counters (does no effect with Lite Bans 2.2)",
+		.desc = "If enabled, bans from server will not affect ban counters (does no effect with Lite Bans 2.2, use 2.3f+ version!)",
 		.bind = g_eCvar[CVAR__IGNORE_SERVER_BANS]
 	);
 
 	bind_cvar_num( "bg_sv_min_ban_time", "10080",
-		.desc = "Bans shorter than this value will not affect ban counters (will work with Fresh Bans only)",
+		.desc = "Bans shorter than this value will not affect ban counters (does no effect with AMXBans)",
 		.bind = g_eCvar[CVAR__MIN_BAN_TIME]
 	);
 
@@ -836,9 +838,17 @@ public fbans_player_banned_pre_f(const id, const uid,
 
 /* ----------------------- */
 
-// Lite Bans 2.2 https://dev-cs.ru/resources/352/extra
-public user_banned_pre(id) {
-	PlayerBanned(id, -1, -1, "LB: user_banned_pre")
+// Lite Bans 2.2 https://dev-cs.ru/resources/352/ with first arg (id) only
+// Lite Bans 2.3f https://dev-cs.ru/resources/1631/ with id, admin_id, ban_minutes
+public user_banned_pre(id, admin_id, ban_minutes) {
+	// NOTE: avoid access to admin_id and ban_minutes without numargs() check, it can cause memory leaks or even a server crash!
+	if(numargs() == 1) { // original 2.2
+		PlayerBanned(id, -1, -1, "LB: user_banned_pre")
+		return
+	}
+
+	// fork 2.3f+
+	PlayerBanned(id, admin_id, ban_minutes, "LB[F]: user_banned_pre")
 }
 
 /* ----------------------- */
