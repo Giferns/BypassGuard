@@ -314,7 +314,7 @@ RegCvars() {
 	);
 
 	bind_cvar_num( "bg_sv_min_ban_time", "10080",
-		.desc = "Bans shorter than this value will not affect ban counters (does no effect with AMXBans RBS)",
+		.desc = "Bans shorter than this value will not affect ban counters (does no effect with AMXBans RBS and Lite Bans 2.2 (use 2.3f+!))",
 		.bind = g_eCvar[CVAR__MIN_BAN_TIME]
 	);
 
