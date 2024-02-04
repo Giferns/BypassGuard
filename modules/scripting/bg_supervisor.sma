@@ -290,7 +290,7 @@ RegCvars() {
 		.bind = g_eCvar[CVAR__RESTRICT_DURATION_AS]
 	);
 
-	bind_cvar_num( "bg_sv_bans_exp_time_global", "180",
+	bind_cvar_num( "bg_sv_bans_exp_time_global", "60",
 		.desc = "How long each ban will affect the GLOBAL counter, in minutes",
 		.has_min = true, .min_val = 1.0,
 		.bind = g_eCvar[CVAR__BAN_EXP_TIME_GLOBAL]
@@ -302,7 +302,7 @@ RegCvars() {
 		.bind = g_eCvar[CVAR__COUNT_TO_STRICT_GLOBAL]
 	);
 
-	bind_cvar_num( "bg_sv_restrict_duration_global", "120",
+	bind_cvar_num( "bg_sv_restrict_duration_global", "20",
 		.desc = "How long GLOBAL will be restricted, in minutes (set to 0 to disable new restrictions)",
 		.has_min = true, .min_val = 0.0,
 		.bind = g_eCvar[CVAR__RESTRICT_DURATION_GLOBAL]
