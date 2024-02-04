@@ -438,7 +438,6 @@ public SQL_Handler(iFailState, Handle:hQueryHandle, szError[], iErrorCode, eSqlD
 
 			new iSysTime = get_systime()
 			new iQueryTime = floatround(fQueryTime)
-			new iTimeDiff
 
 			if(iTimeStamp + iQueryTime > iSysTime) {
 				g_iTimeDiff = (iTimeStamp + iQueryTime) - iSysTime // (10 + 1) - 5 = timediff 6 (mysql time > than cs server time)
@@ -863,6 +862,13 @@ public user_banned_pre(id, admin_id, ban_minutes) {
 // Вызывается, до начала бана игрока
 public amxbans_ban_pre(id, admin) {
 	PlayerBanned(id, admin, -1, "RBS: amxbans_ban_pre")
+}
+
+/* ----------------------- */
+
+// Diveban X Open https://github.com/cssuite/Diveban-X-Open
+public divebanx_ban_pre(admin, player, minutes, const reason[]) {
+	PlayerBanned(player, admin, minutes, "DiveBanX: divebanx_ban_pre")
 }
 
 /* ----------------------- */
