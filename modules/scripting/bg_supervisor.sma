@@ -437,12 +437,18 @@ public SQL_Handler(iFailState, Handle:hQueryHandle, szError[], iErrorCode, eSqlD
 			new iTimeStamp = SQL_ReadResult(hQueryHandle, 0) // `unixtime`
 
 			new iSysTime = get_systime()
+			new iQueryTime = floatround(fQueryTime)
+			new iTimeDiff
+
+			if(iTimeStamp + iQueryTime > iSysTime) {
+				g_iTimeDiff = (iTimeStamp + iQueryTime) - iSysTime // (10 + 1) - 5 = timediff 6 (mysql time > than cs server time)
+			}
+			else {
+				g_iTimeDiff = iTimeStamp - (iSysTime + iQueryTime) // 5 - (10 + 1) = timediff -6 (mysql time < than cs server time)
+			}
 
 			RecordToLogfile( LOG_MODE__DEBUG, "[QUERY__INIT_SYSTEM] LocalTime %i, DbTime: %i, QueryTime: %f, TimeDiff: %i",
-				iSysTime, iTimeStamp, fQueryTime, iSysTime - (iTimeStamp + floatround(fQueryTime)) );
-
-			iTimeStamp += floatround(fQueryTime)
-			g_iTimeDiff = iTimeStamp - iSysTime
+				iSysTime, iTimeStamp, fQueryTime, g_iTimeDiff );
 
 			g_bSystemInitialized = true
 			PerformDelayedActions()
