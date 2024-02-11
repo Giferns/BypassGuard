@@ -171,9 +171,15 @@
 		* Квару 'bypass_guard_country_check_mode' добавлен режим -1 (запрашивать данные, но пропускать проверку страны)
 	1.0.8 (16.07.2023):
 		* Расширение API под совместимость с предстоящим плагином Supervisor
+	1.0.9 (10.02.2024):
+		* Добавлено принудительное конвертирование кода страны в верхний регистр в нативе BypassGuard_RequestGeoData(),
+			так как iphub.info начал периодически отдавать код страны в нижнем регистре, что ломает логику проверки
+		* Добавлен квар 'bypass_guard_check_proxy', позволяющий отключить проверку на Proxy/VPN. Добавлен для серверов из
+			России, т.к. украинские игроки иногда не могут зайти на сервера в РФ напрямую, и используют для этого Proxy/VPN.
+			Не рекомендуется отключать проверку на Proxy/VPN просто так, это сильно ослабляет защиту от обхода бана!
 */
 
-new const PLUGIN_VERSION[] = "1.0.8"
+new const PLUGIN_VERSION[] = "1.0.9"
 
 /* ----------------------- */
 
@@ -278,7 +284,8 @@ enum _:CVAR_ENUM {
 	CVAR__SHOW_URL,
 	Float:CVAR_F__CHECK_DELAY,
 	Float:CVAR_F__KICK_DELAY,
-	CVAR__COUNTRY_CHECK_MODE
+	CVAR__COUNTRY_CHECK_MODE,
+	CVAR__CHECK_PROXY
 }
 
 new g_pCvar[PCVAR_ENUM]
@@ -366,6 +373,11 @@ RegCvars() {
 		1 - Whitelist^n\
 		2 - Blacklist"),
 		g_eCvar[CVAR__COUNTRY_CHECK_MODE] );
+
+	/* --- */
+
+	bind_pcvar_num( create_cvar("bypass_guard_check_proxy", "1",
+		.description = "Enable (1) or disable (0) Proxy/VPN check?"), g_eCvar[CVAR__CHECK_PROXY] );
 
 	/* --- */
 
@@ -740,6 +752,11 @@ func_CheckPlayer_Step3(pPlayer) {
 
 		SetPlayerCheckComplete(pPlayer, true)
 
+		return
+	}
+
+	if(!g_eCvar[CVAR__CHECK_PROXY]) {
+		func_CheckPlayer_Step4(pPlayer, false)
 		return
 	}
 
@@ -2340,6 +2357,7 @@ public _BypassGuard_SendGeoData(iPluginID, iParamCount) {
 
 	if(get_param(success)) {
 		get_string(code, g_szCode[pPlayer], chx(g_szCode[]))
+		strtoupper(g_szCode[pPlayer]) // 1.0.9 fix
 		get_string(country, g_szCountry[pPlayer], chx(g_szCountry[]))
 	}
 	else if(pPlayer) {
