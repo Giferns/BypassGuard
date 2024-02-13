@@ -367,7 +367,7 @@ InitializeSystem() {
 			"CREATE TABLE IF NOT EXISTS `%s` (\
 				`id` int(10) unsigned NOT NULL AUTO_INCREMENT, \
 				`steamid` varchar(64) NOT NULL, \
-				`until` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00', \
+				`until` timestamp NULL DEFAULT NULL, \
 				PRIMARY KEY (`id`), \
 				UNIQUE KEY `steamid` (`steamid`)\
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8;\
@@ -375,8 +375,8 @@ InitializeSystem() {
 			CREATE TABLE IF NOT EXISTS `%s` (\
 				`id` int(10) unsigned NOT NULL AUTO_INCREMENT, \
 				`asn` varchar(16) NOT NULL, \
-				`until_global` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00', \
-				`until_as` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00', \
+				`until_global` timestamp NULL DEFAULT NULL, \
+				`until_as` timestamp NULL DEFAULT NULL, \
 				PRIMARY KEY (`id`), \
 				KEY `asn` (`asn`)\
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8;\
@@ -384,7 +384,7 @@ InitializeSystem() {
 			CREATE TABLE IF NOT EXISTS `%s` (\
 				`id` int(10) unsigned NOT NULL AUTO_INCREMENT, \
 				`asn` varchar(16) NOT NULL, \
-				`until` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00', \
+				`until` timestamp NULL DEFAULT NULL, \
 				PRIMARY KEY (`id`), \
 				UNIQUE KEY `asn` (`asn`)\
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
