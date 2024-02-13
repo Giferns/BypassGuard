@@ -8,9 +8,12 @@
 		* Добавлена поддержка учёта банов Diveban X Open
 		* Изменено значение по умолчанию для квара bg_sv_bans_exp_time_global с "180" на "60"
 		* Изменено значение по умолчанию для квара bg_sv_restrict_duration_global с "120" на "20"
+	0.4 (13.02.2024):
+		* Исправление возможной ошибки "#1067 - Некорректное значение по умолчанию для 'until_global'"
+			Спасибо D1esel (https://dev-cs.ru/threads/31880/post-169242)
 */
 
-new const PLUGIN_VERSION[] = "0.3"
+new const PLUGIN_VERSION[] = "0.4"
 
 /* ----------------------- */
 
