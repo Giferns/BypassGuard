@@ -38,6 +38,7 @@ enum _:ALLOW_TYPE_ENUM {
     ALLOW_TYPE__ACCESS_FLAGS,
     ALLOW_TYPE__STEAMID_IMMUNITY,
     ALLOW_TYPE__IP_WHITELIST,
+    ALLOW_TYPE__STATS_IMMUNITY,
     ALLOW_TYPE__AS_WHITELIST,
     ALLOW_TYPE__CHECK
 }
@@ -181,10 +182,12 @@ native BypassGuard_SendProxyStatus(pPlayer, bool:IsProxy, bool:bSuccess);
  * @param pPlayer			    Player index
  * @param bAllowConnect   Allow connect (true) or deny (false, so player will be kicked soon)
  * @param szStatus              Supervising status as string
+ * @param bByWhitepass     true when player have whitepass, false otherwise
+ * @param bStrictStatus       Restriction status (strict/non-strict), always false when result is taken from whitepass cache
  *
  * @noreturn
  */
-native BypassGuard_SendSupervisingResult(pPlayer, bool:bAllowConnect, const szStatus[MAX_SV_STATUS_LEN]);
+native BypassGuard_SendSupervisingResult(pPlayer, bool:bAllowConnect, const szStatus[MAX_SV_STATUS_LEN], bool:bByWhitepass, bool:bStrictStatus);
 
 /**
  * Logs specified text to error log.
