@@ -68,6 +68,7 @@
 	Inline за модуль 'gRIP'
 	voed за пример работы с модулем 'gRIP'
 	Garey, AleXr, wopox1337 за версию 'gRIP' под Windows: https://dev-cs.ru/threads/2789/post-65613
+	SKAJIbnEJIb за конструктивную критику и идеи
 */
 
 /* История обновлений:
