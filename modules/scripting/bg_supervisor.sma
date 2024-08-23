@@ -11,9 +11,17 @@
 	0.4 (13.02.2024):
 		* Исправление возможной ошибки "#1067 - Некорректное значение по умолчанию для 'until_global'"
 			Спасибо D1esel (https://dev-cs.ru/threads/31880/post-169242)
+	0.5 (23.08.2024):
+		* Реализована совместимость с новым функционалом ядра версии 1.0.10
+			* Нативу BypassGuard_SendSupervisingResult добавлены аргументы bByWhitepass и bStrictStatus
+		* Добавлена возможность подгружать настройки подключения к БД из amxmodx/sql.cfg, для этого значение квара
+			bg_sv_sql_host необходимо изменить на "sql.cfg" (идея SKAJIbnEJIb)
+		* Добавлена очистка устаревших записей в таблицах, раз в сессию запуска сервера (идея SKAJIbnEJIb)
+		* Квару bg_sv_min_ban_time добавлена поддержка новой ожидаемой версии AMXBans RBS, автор
+			обещал выпустить обновление с большим кол-вом аргументов в форварде amxbans_ban_pre()
 */
 
-new const PLUGIN_VERSION[] = "0.4"
+new const PLUGIN_VERSION[] = "0.5"
 
 /* ----------------------- */
 
@@ -95,6 +103,7 @@ enum ( <<= 1 ) {
 
 enum {
 	QUERY__INIT_SYSTEM,
+	QUERY__FLUSH_OLD_DATA,
 	QUERY__WRITE_WHITEPASS,
 	QUERY__CHECK_PLAYER,
 	QUERY__INSERT_BAN,
@@ -214,25 +223,17 @@ LoadAsWhiteList(const szFolderName[]) {
 /* ----------------------- */
 
 RegCvars() {
-	bind_cvar_string( "bg_sv_sql_host", "127.0.0.1", FCVAR_PROTECTED,
-		.desc = "Database host",
-		.bind = g_eCvar[CVAR__HOST], .maxlen = charsmax(g_eCvar[CVAR__HOST])
-	);
+	create_cvar( "bg_sv_sql_host", "127.0.0.1", FCVAR_PROTECTED,
+		.description = "Database host (set to ^"sql.cfg^" to use settings from it)" );
 
-	bind_cvar_string( "bg_sv_sql_user", "root", FCVAR_PROTECTED,
-		.desc = "Database user",
-		.bind = g_eCvar[CVAR__USER], .maxlen = charsmax(g_eCvar[CVAR__USER])
-	);
+	create_cvar( "bg_sv_sql_user", "root", FCVAR_PROTECTED,
+		.description = "Database user" );
 
-	bind_cvar_string( "bg_sv_sql_password", "", FCVAR_PROTECTED,
-		.desc = "Database password",
-		.bind = g_eCvar[CVAR__PASSWORD], .maxlen = charsmax(g_eCvar[CVAR__PASSWORD])
-	);
+	create_cvar( "bg_sv_sql_password", "", FCVAR_PROTECTED,
+		.description = "Database password" );
 
-	bind_cvar_string( "bg_sv_sql_database", "database", FCVAR_PROTECTED,
-		.desc = "Database name",
-		.bind = g_eCvar[CVAR__DATABASE], .maxlen = charsmax(g_eCvar[CVAR__DATABASE])
-	);
+	create_cvar( "bg_sv_sql_database", "database", FCVAR_PROTECTED,
+		.description = "Database name" );
 
 	bind_cvar_string( "bg_sv_sql_wp_table", "bg_sv_whitepasses", FCVAR_PROTECTED,
 		.desc = "Database table with whitepasses",
@@ -322,7 +323,7 @@ RegCvars() {
 	);
 
 	bind_cvar_num( "bg_sv_min_ban_time", "10080",
-		.desc = "Bans shorter than this value will not affect ban counters (does no effect with AMXBans RBS and Lite Bans 2.2 (use 2.3f+!))",
+		.desc = "Bans shorter than this value will not affect ban counters (does no effect with old versions of AMXBans RBS and Lite Bans 2.2 (use 2.3f+!))",
 		.bind = g_eCvar[CVAR__MIN_BAN_TIME]
 	);
 
@@ -350,6 +351,19 @@ public task_InitSystem() {
 
 	if(g_eCvar[CVAR_F__WP_CACHE_PRUNE_FREQ] > 0.0) {
 		set_task(g_eCvar[CVAR_F__WP_CACHE_PRUNE_FREQ], "task_PruneWhitepassCache", .flags = "b")
+	}
+
+	if(equali(g_eCvar[CVAR__HOST], "sql.cfg")) {
+		get_cvar_string("amx_sql_host", g_eCvar[CVAR__HOST], charsmax(g_eCvar[CVAR__HOST]))
+		get_cvar_string("amx_sql_user", g_eCvar[CVAR__USER], charsmax(g_eCvar[CVAR__USER]))
+		get_cvar_string("amx_sql_pass", g_eCvar[CVAR__PASSWORD], charsmax(g_eCvar[CVAR__PASSWORD]))
+		get_cvar_string("amx_sql_db", g_eCvar[CVAR__DATABASE], charsmax(g_eCvar[CVAR__DATABASE]))
+	}
+	else {
+		get_cvar_string("bg_sv_sql_host", g_eCvar[CVAR__HOST], charsmax(g_eCvar[CVAR__HOST]))
+		get_cvar_string("bg_sv_sql_user", g_eCvar[CVAR__USER], charsmax(g_eCvar[CVAR__USER]))
+		get_cvar_string("bg_sv_sql_password", g_eCvar[CVAR__PASSWORD], charsmax(g_eCvar[CVAR__PASSWORD]))
+		get_cvar_string("bg_sv_sql_database", g_eCvar[CVAR__DATABASE], charsmax(g_eCvar[CVAR__DATABASE]))
 	}
 
 	g_hSqlTuple = SQL_MakeDbTuple( g_eCvar[CVAR__HOST], g_eCvar[CVAR__USER], g_eCvar[CVAR__PASSWORD],
@@ -457,8 +471,15 @@ public SQL_Handler(iFailState, Handle:hQueryHandle, szError[], iErrorCode, eSqlD
 			RecordToLogfile( LOG_MODE__DEBUG, "[QUERY__INIT_SYSTEM] LocalTime %i, DbTime: %i, QueryTime: %f, TimeDiff: %i",
 				iSysTime, iTimeStamp, fQueryTime, g_iTimeDiff );
 
-			g_bSystemInitialized = true
-			PerformDelayedActions()
+			FlushOldData()
+		}
+
+		/* --- */
+
+		case QUERY__FLUSH_OLD_DATA: {
+			set_localinfo("bg_sv_flushed", "1")
+			RecordToLogfile(LOG_MODE__DEBUG, "[QUERY__FLUSH_OLD_DATA] Flushing done!")
+			SetSystemInitialized()
 		}
 
 		/* --- */
@@ -471,29 +492,34 @@ public SQL_Handler(iFailState, Handle:hQueryHandle, szError[], iErrorCode, eSqlD
 				return
 			}
 
+			// (SELECT COUNT(*) FROM `%s` WHERE `until` > CURRENT_TIMESTAMP) as `strict_status`
+			new bool:bStrictStatus = (SQL_ReadResult(hQueryHandle, 3) > 0)
+
+			RecordToLogfile(LOG_MODE__DEBUG, "[QUERY__CHECK_PLAYER] %N -> SV strict status: %i", pPlayer, bStrictStatus)
+
 			// SELECT COUNT(*) as `whitepass`
 			if(SQL_ReadResult(hQueryHandle, 0)) {
 				RecordToLogfile(LOG_MODE__DEBUG, "[QUERY__CHECK_PLAYER] %N allowed due to whitepass (query)", pPlayer)
-				BypassGuard_SendSupervisingResult(pPlayer, true, ALLOW_STATUSES[SV__ALLOW_QUERY])
+				BypassGuard_SendSupervisingResult(pPlayer, true, ALLOW_STATUSES[SV__ALLOW_QUERY], true, bStrictStatus)
 				return
 			}
 
 			// (SELECT COUNT(*) FROM `%s` WHERE `asn` = '%s' AND `until` > CURRENT_TIMESTAMP) as `rest_asn`
 			if(SQL_ReadResult(hQueryHandle, 2)) {
 				RecordToLogfile(LOG_MODE__DEBUG, "[QUERY__CHECK_PLAYER] %N denied due to ASN restriction", pPlayer)
-				BypassGuard_SendSupervisingResult(pPlayer, false, DENY_STATUSES[SV__DENY_ASN_REST])
+				BypassGuard_SendSupervisingResult(pPlayer, false, DENY_STATUSES[SV__DENY_ASN_REST], false, bStrictStatus)
 				return
 			}
 
 			// (SELECT COUNT(*) FROM `%s` WHERE `asn` = '%s' AND `until` > CURRENT_TIMESTAMP) as `rest_global`
 			if(SQL_ReadResult(hQueryHandle, 1)) {
 				RecordToLogfile(LOG_MODE__DEBUG, "[QUERY__CHECK_PLAYER] %N denied due to GLOBAL restriction", pPlayer)
-				BypassGuard_SendSupervisingResult(pPlayer, false, DENY_STATUSES[SV__DENY_GLOBAL_REST])
+				BypassGuard_SendSupervisingResult(pPlayer, false, DENY_STATUSES[SV__DENY_GLOBAL_REST], false, bStrictStatus)
 				return
 			}
 
 			RecordToLogfile(LOG_MODE__DEBUG, "[QUERY__CHECK_PLAYER] %N allowed due to approval", pPlayer)
-			BypassGuard_SendSupervisingResult(pPlayer, true, ALLOW_STATUSES[SV__ALLOW_APPROVED])
+			BypassGuard_SendSupervisingResult(pPlayer, true, ALLOW_STATUSES[SV__ALLOW_APPROVED], false, bStrictStatus)
 		}
 
 		/* --- */
@@ -652,6 +678,41 @@ public SQL_Handler(iFailState, Handle:hQueryHandle, szError[], iErrorCode, eSqlD
 
 /* ----------------------- */
 
+FlushOldData() {
+	new szValue[8]
+	get_localinfo("bg_sv_flushed", szValue, charsmax(szValue))
+
+	if(str_to_num(szValue)) {
+		RecordToLogfile(LOG_MODE__DEBUG, "Data already flushed!")
+		SetSystemInitialized()
+		return
+	}
+
+	formatex( g_szQuery, charsmax(g_szQuery),
+		"DELETE FROM `%s` WHERE `until` < CURRENT_TIMESTAMP; \
+		DELETE FROM `%s` WHERE `until` < CURRENT_TIMESTAMP; \
+		DELETE FROM `%s` WHERE `until_global` < CURRENT_TIMESTAMP AND `until_as` < CURRENT_TIMESTAMP;",
+
+		g_eCvar[CVAR__TABLE_WHITEPASSES],
+		g_eCvar[CVAR__TABLE_RESTRICTIONS],
+		g_eCvar[CVAR__TABLE_BANS]
+	);
+
+	RecordToLogfile(LOG_MODE__DEBUG, "[QID %i] [QUERY__FLUSH_OLD_DATA] Flushing...", g_eSqlData[SQL_DATA__QID] + 1)
+
+	MakeQuery(QUERY__FLUSH_OLD_DATA)
+}
+
+/* ----------------------- */
+
+SetSystemInitialized() {
+	RecordToLogfile(LOG_MODE__DEBUG, "System initialized!")
+	g_bSystemInitialized = true
+	PerformDelayedActions()
+}
+
+/* ----------------------- */
+
 GetSysTime() {
 	return get_systime() + g_iTimeDiff
 }
@@ -675,7 +736,7 @@ public BypassGuard_RequestSupervising(pPlayer, const szAsNumber[MAX_AS_LEN]) {
 
 	if(TrieKeyExists(g_tPlayerCache, szAuthID)) {
 		RecordToLogfile(LOG_MODE__DEBUG, "%N allowed due to whitepass (cache)", pPlayer)
-		BypassGuard_SendSupervisingResult(pPlayer, true, ALLOW_STATUSES[SV__ALLOW_CACHE])
+		BypassGuard_SendSupervisingResult(pPlayer, true, ALLOW_STATUSES[SV__ALLOW_CACHE], true, false)
 		return PLUGIN_HANDLED
 	}
 
@@ -690,11 +751,13 @@ PerformPlayerCheck(pPlayer, const szAuthID[], const szAsNumber[], const szType[]
 	formatex( g_szQuery, charsmax(g_szQuery),
 		"SELECT COUNT(*) as `whitepass`, \
 		(SELECT COUNT(*) FROM `%s` WHERE `asn` = '%s' AND `until` > CURRENT_TIMESTAMP) as `rest_global`, \
-		(SELECT COUNT(*) FROM `%s` WHERE `asn` = '%s' AND `until` > CURRENT_TIMESTAMP) as `rest_asn` \
+		(SELECT COUNT(*) FROM `%s` WHERE `asn` = '%s' AND `until` > CURRENT_TIMESTAMP) as `rest_asn`, \
+		(SELECT COUNT(*) FROM `%s` WHERE `until` > CURRENT_TIMESTAMP) as `strict_status` \
 		FROM `%s` WHERE `steamid` = '%s' AND `until` > CURRENT_TIMESTAMP",
 
 		g_eCvar[CVAR__TABLE_RESTRICTIONS], GLOBAL_KEY,
 		g_eCvar[CVAR__TABLE_RESTRICTIONS], szAsNumber,
+		g_eCvar[CVAR__TABLE_RESTRICTIONS],
 		g_eCvar[CVAR__TABLE_WHITEPASSES], szAuthID
 	);
 
@@ -868,8 +931,14 @@ public user_banned_pre(id, admin_id, ban_minutes) {
 
 // AMXBans RBS https://fungun.net/shop/?p=show&id=40
 // Вызывается, до начала бана игрока
-public amxbans_ban_pre(id, admin) {
-	PlayerBanned(id, admin, -1, "RBS: amxbans_ban_pre")
+// [new] forward amxbans_ban_pre(id, admin, bantime, bantype[], banreason[]);
+public amxbans_ban_pre(id, admin, bantime) {
+	// NOTE: avoid access to bantime without numargs() check, it can cause memory leaks or even a server crash!
+	if(numargs() == 2) {
+		PlayerBanned(id, admin, -1, "RBS[old]: amxbans_ban_pre")
+		return
+	}
+	PlayerBanned(id, admin, bantime, "RBS[new]: amxbans_ban_pre")
 }
 
 /* ----------------------- */
