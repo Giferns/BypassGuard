@@ -177,9 +177,20 @@
 		* Добавлен квар 'bypass_guard_check_proxy', позволяющий отключить проверку на Proxy/VPN. Добавлен для серверов из
 			России, т.к. украинские игроки иногда не могут зайти на сервера в РФ напрямую, и используют для этого Proxy/VPN.
 			Не рекомендуется отключать проверку на Proxy/VPN просто так, это сильно ослабляет защиту от обхода бана!
+	1.0.10 (23.08.2024):
+		* Добавлена возможность проверять игрока на Proxy/VPN только в том случае, если Supervisor имеет активную блокировку,
+				и у проверяемого игрока нет whitepass (т.е. игрок опознан сервером как 'новый') (идея SKAJIbnEJIb).
+			* Для квара bypass_guard_check_proxy добавлен режим "2"
+			* Нативу BypassGuard_SendSupervisingResult добавлены аргументы bByWhitepass и bStrictStatus
+			* Изменён порядок логики, теперь запрос к супервайзеру отправляется раньше проверки на Proxy/VPN
+		* Добавлена возможность пропускать проверку игроков, которые, по данным статистики, провели на
+			сервере # или более минут (идея SKAJIbnEJIb).
+			* Добавлен квар bypass_guard_allow_by_stats
+			* Добавлен квар bypass_guard_stats_type
+			* bypass_guard.inc: в энумерацию ALLOW_TYPE_ENUM добавлен элемент ALLOW_TYPE__STATS_IMMUNITY
 */
 
-new const PLUGIN_VERSION[] = "1.0.9"
+new const PLUGIN_VERSION[] = "1.0.10"
 
 /* ----------------------- */
 
@@ -285,7 +296,9 @@ enum _:CVAR_ENUM {
 	Float:CVAR_F__CHECK_DELAY,
 	Float:CVAR_F__KICK_DELAY,
 	CVAR__COUNTRY_CHECK_MODE,
-	CVAR__CHECK_PROXY
+	CVAR__CHECK_PROXY,
+	CVAR__ALLOW_BY_STATS,
+	CVAR__STATS_TYPE
 }
 
 new g_pCvar[PCVAR_ENUM]
@@ -328,6 +341,7 @@ new g_bitKickFailCheckFlags
 new bool:g_bCheckComplete[MAX_PLAYERS + 1]
 new g_ePlayerData[BG_PLAYER_DATA_STRUCT]
 new g_szSvStatus[MAX_PLAYERS + 1][MAX_SV_STATUS_LEN]
+new bool:g_bSvAllowConnect[MAX_PLAYERS + 1]
 
 /* -------------------- */
 
@@ -377,7 +391,30 @@ RegCvars() {
 	/* --- */
 
 	bind_pcvar_num( create_cvar("bypass_guard_check_proxy", "1",
-		.description = "Enable (1) or disable (0) Proxy/VPN check?"), g_eCvar[CVAR__CHECK_PROXY] );
+		.description = "Enable (1) or disable (0) Proxy/VPN check mode:^n\
+		0 - Disable^n\
+		1 - Enable^n\
+		2 - Enable, if Supervisor addon have an active ASN block and player don't have a whitepass"),
+		g_eCvar[CVAR__CHECK_PROXY]
+	);
+
+	/* --- */
+
+	bind_pcvar_num( create_cvar("bypass_guard_allow_by_stats", "0",
+		.description = "Players, that played # or more minutes, can join without checks (0 - disable feature)"),
+		g_eCvar[CVAR__ALLOW_BY_STATS]
+	);
+
+	/* --- */
+
+	bind_pcvar_num( create_cvar("bypass_guard_stats_type", "0",
+		.description = "Stats type for cvar 'bypass_guard_allow_by_stats':^n\
+			0 - CSstatsX SQL (freeman)^n\
+			1 - CsStats MySQL (fungun)^n\
+			2 - CMSStats MySQL (zhorzh78)^n\
+			3 - Simple Online Logger"),
+		g_eCvar[CVAR__STATS_TYPE]
+	);
 
 	/* --- */
 
@@ -546,6 +583,7 @@ public client_putinserver(pPlayer) {
 	g_szCode[pPlayer] = _NA_
 	g_szCountry[pPlayer] = _NA_
 	g_szSvStatus[pPlayer] = _NA_
+	g_bSvAllowConnect[pPlayer] = false
 
 	get_user_ip(pPlayer, g_szIP[pPlayer], chx(g_szIP[]), .without_port = 1)
 	get_user_ip(pPlayer, g_szAddress[pPlayer], chx(g_szAddress[]), .without_port = 0)
@@ -562,7 +600,14 @@ public client_putinserver(pPlayer) {
 		return
 	}
 
-	set_task(g_eCvar[CVAR_F__CHECK_DELAY], "task_CheckPlayer_Step1", get_user_userid(pPlayer))
+	new Float:fCheckDelay = g_eCvar[CVAR_F__CHECK_DELAY]
+
+	if(g_eCvar[CVAR__ALLOW_BY_STATS]) {
+		// give time to load player data in stats plugin
+		fCheckDelay = floatmax(1.0, fCheckDelay)
+	}
+
+	set_task(fCheckDelay, "task_CheckPlayer_Step1", get_user_userid(pPlayer))
 }
 
 /* -------------------- */
@@ -698,12 +743,108 @@ func_CheckPlayer_Step2(pPlayer) {
 		return
 	}
 
+	if(CanJoinByStats(pPlayer)) {
+		g_iAccessType[pPlayer] = ALLOW_TYPE__STATS_IMMUNITY
+		g_szAccess[pPlayer] = "Stats Immunity"
+
+		log_to_file( g_eLogFile[LOG__ALLOW], "[Stats Immunity] %n | %s | %s | %s | %s",
+			pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer], g_szCode[pPlayer], g_szCountry[pPlayer] );
+
+		SetPlayerCheckComplete(pPlayer, true)
+
+		return
+	}
+
 	// provider plugin -> _BypassGuard_SendAsInfo() -> func_CheckPlayer_Step3()
 	new iRet; ExecuteForward(g_fwdRequestAsInfo, iRet, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
 
 	if(!iRet) {
 		FwdError("BypassGuard_RequestAsInfo")
 	}
+}
+
+/* -------------------- */
+
+// [0] CSstatsX SQL https://dev-cs.ru/resources/179/
+//
+// Returns player played time in seconds
+//	@return - played time in seconds
+//			-1 if no played time recorded
+//
+native get_user_gametime(id)
+
+// [1] CsStats MySQL: https://fungun.net/shop/?p=show&id=3
+#define _GAMETIME	14	// Время в игре (в секундах)
+// Вернет значение пункта статистики(ident)
+native csstats_get_user_value(id, ident)
+
+// [2] CMSStats MySQL https://cs-games.club/index.php?resources/cmsstats-mysql.13/
+/**Массив основной статистики*/
+enum _:MAIN_STATS
+{
+	FRAGS,			/*Фраги*/
+	DEATHS,			/* Смерти*/
+	HEADSHOTS,		/* В голову*/
+	TEAMKILLS,		/* Убийства своих*/
+	SHOTS,			/* Выстрелов*/
+	HITS,			/* Попаданий*/
+	DAMAGE,			/* Урон*/
+	PLACE			/* Место в статистике*/
+}
+
+/**Массив полной статистики*/
+enum _:STATS_ARR_SIZE
+{
+	SUICIDE = MAIN_STATS,		/* Самоубийства*/
+	DEFUSING,		/* Начал разминировать бомб*/
+	DEFUSED,		/* Разминировал бомб*/
+	PLANTED,		/* Поставил бомб*/
+	EXPLODE,		/* Взорвал бомб*/
+	LASTTIME,		/* Когда был последний раз (в UNIX времени)*/
+	GAMETIME,		/* Время в игре (в секундах)*/
+	CONNECTS,		/* Сыграл игр*/
+	ROUNDS,			/* Сыграл раундов*/
+	WINT,			/* Выиграл за Т*/
+	WINCT,			/* Выиграл за СТ*/
+	RESHOSTAGE,		/* Спас заложников*/
+	KILLASSIST,		/* Помощь в убийстве*/
+	KILLSTREAK[2],	/*Череда убийств*/
+	DEATHSTREAK[2],	/*Череда смертей*/
+	Float:SKILL		/* Скилл игрока*/
+	, ID
+}
+
+/** Получение значения пункта статистики(ident)
+* @return	Вернет значение пункта статистики (ident)
+*/
+native cmsstats_get_user_value(id, ident)
+
+// [3] Simple Online Logger https://dev-cs.ru/resources/430/
+native sol_get_user_time(id)
+
+bool:CanJoinByStats(pPlayer) {
+	if(!g_eCvar[CVAR__ALLOW_BY_STATS]) {
+		return false
+	}
+
+	new iMinutes
+
+	switch(g_eCvar[CVAR__STATS_TYPE]) {
+		case 0: { // CSstatsX SQL https://dev-cs.ru/resources/179/
+			iMinutes = get_user_gametime(pPlayer) / 60
+		}
+		case 1: { // CsStats MySQL: https://fungun.net/shop/?p=show&id=3
+			iMinutes = csstats_get_user_value(pPlayer, _GAMETIME) / 60
+		}
+		case 2: { // CMSStats MySQL https://cs-games.club/index.php?resources/cmsstats-mysql.13/
+			iMinutes = cmsstats_get_user_value(pPlayer, GAMETIME) / 60
+		}
+		case 3: { // [3] Simple Online Logger https://dev-cs.ru/resources/430/
+			iMinutes = sol_get_user_time(pPlayer) / 60
+		}
+	}
+
+	return (iMinutes >= g_eCvar[CVAR__ALLOW_BY_STATS])
 }
 
 /* -------------------- */
@@ -755,12 +896,34 @@ func_CheckPlayer_Step3(pPlayer) {
 		return
 	}
 
-	if(!g_eCvar[CVAR__CHECK_PROXY]) {
-		func_CheckPlayer_Step4(pPlayer, false)
-		return
+	// provider plugin -> _BypassGuard_SendSupervisingResult() -> func_CheckPlayer_Step4()
+	new iRet; ExecuteForward(g_fwdRequestSupervising, iRet, pPlayer, g_szAsNumber[pPlayer])
+
+	if(!iRet) {
+		g_bSvAllowConnect[pPlayer] = true
+		func_CheckPlayer_Step4(pPlayer, false, false, false)
+	}
+}
+
+/* -------------------- */
+
+func_CheckPlayer_Step4(pPlayer, bool:bSupervisorActive, bool:bByWhitepass, bool:bStrictStatus) {
+	switch(g_eCvar[CVAR__CHECK_PROXY]) {
+		case 0: {
+			func_CheckPlayer_Step5(pPlayer, false)
+			return
+		}
+		case 2: {
+			// if SV is running and (status is 'non-strict' or player have whitepass), we skip proxy/vpn check
+			// if SV is not running, we act like bypass_guard_check_proxy have value "1"
+			if(bSupervisorActive && (!bStrictStatus || bByWhitepass)) {
+				func_CheckPlayer_Step5(pPlayer, false)
+				return
+			}
+		}
 	}
 
-	// provider plugin -> _BypassGuard_SendProxyStatus() -> func_CheckPlayer_Step4()
+	// provider plugin -> _BypassGuard_SendProxyStatus() -> func_CheckPlayer_Step5()
 	new iRet; ExecuteForward(g_fwdRequestProxyStatus, iRet, pPlayer, g_szIP[pPlayer], g_eCvar[CVAR__MAX_CHECK_TRIES])
 
 	if(!iRet) {
@@ -770,14 +933,14 @@ func_CheckPlayer_Step3(pPlayer) {
 
 /* -------------------- */
 
-func_CheckPlayer_Step4(pPlayer, bool:bIsProxy) {
+func_CheckPlayer_Step5(pPlayer, bool:bIsProxy) {
 	if(bIsProxy) {
 		func_KickPlayer(pPlayer, KICK_TYPE__PROXY_DETECTED)
 		return
 	}
 
 	if(CheckBit(g_bitSkipGeo, pPlayer) || g_eCvar[CVAR__COUNTRY_CHECK_MODE] <= 0) {
-		func_CheckPlayer_Step5(pPlayer)
+		func_CheckPlayer_Step6(pPlayer)
 		return
 	}
 
@@ -802,24 +965,13 @@ func_CheckPlayer_Step4(pPlayer, bool:bIsProxy) {
 		}
 	}
 
-	func_CheckPlayer_Step5(pPlayer)
+	func_CheckPlayer_Step6(pPlayer)
 }
 
 /* -------------------- */
 
-func_CheckPlayer_Step5(pPlayer) {
-	// provider plugin -> _BypassGuard_SendSupervisingResult() -> func_CheckPlayer_Step6()
-	new iRet; ExecuteForward(g_fwdRequestSupervising, iRet, pPlayer, g_szAsNumber[pPlayer])
-
-	if(!iRet) {
-		AllowPlayerByChecks(pPlayer)
-	}
-}
-
-/* -------------------- */
-
-func_CheckPlayer_Step6(pPlayer, bool:bAllowConnect) {
-	if(bAllowConnect) {
+func_CheckPlayer_Step6(pPlayer) {
+	if(g_bSvAllowConnect[pPlayer]) {
 		AllowPlayerByChecks(pPlayer)
 		return
 	}
@@ -2338,6 +2490,8 @@ public plugin_end() {
 public plugin_natives() {
 	register_library("bypass_guard_core")
 
+	set_native_filter("native_filter")
+
 	register_native("BypassGuard_SendGeoData", "_BypassGuard_SendGeoData")
 	register_native("BypassGuard_SendAsInfo", "_BypassGuard_SendAsInfo")
 	register_native("BypassGuard_SendProxyStatus", "_BypassGuard_SendProxyStatus")
@@ -2463,18 +2617,20 @@ public _BypassGuard_SendProxyStatus(iPluginID, iParamCount) {
 		SetBit(g_bitPlayerFailFlags[pPlayer], BG_CHECK_FAIL__PROXY)
 	}
 
-	func_CheckPlayer_Step4(pPlayer, bool:get_param(is_proxy))
+	func_CheckPlayer_Step5(pPlayer, bool:get_param(is_proxy))
 }
 
 /* -------------------- */
 
 public _BypassGuard_SendSupervisingResult(iPluginID, iParamCount) {
-	enum { player = 1, allow_connect, sv_status }
+	enum { player = 1, allow_connect, sv_status, by_whitepass, strict_status }
 
 	new pPlayer = get_param(player)
 	get_string(sv_status, g_szSvStatus[pPlayer], charsmax(g_szSvStatus[]))
 
-	func_CheckPlayer_Step6(pPlayer, bool:get_param(allow_connect))
+	g_bSvAllowConnect[pPlayer] = bool:get_param(allow_connect)
+
+	func_CheckPlayer_Step4(pPlayer, true, bool:get_param(by_whitepass), bool:get_param(strict_status))
 }
 
 /* -------------------- */
@@ -2522,4 +2678,10 @@ public _BypassGuard_GetPlayerData(iPluginID, iParamCount) {
 public bool:_BypassGuard_IsPlayerChecked(iPluginID, iParamCount) {
 	enum { player = 1 }
 	return g_bCheckComplete[ get_param(player) ]
+}
+
+/* -------------------- */
+
+public native_filter(const szNativeName[], iNativeID, iTrapMode) {
+	return PLUGIN_HANDLED
 }
