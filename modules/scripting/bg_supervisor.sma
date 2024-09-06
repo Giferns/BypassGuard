@@ -14,14 +14,16 @@
 	0.5 (23.08.2024):
 		* Реализована совместимость с новым функционалом ядра версии 1.0.10
 			* Нативу BypassGuard_SendSupervisingResult добавлены аргументы bByWhitepass и bStrictStatus
-		* Добавлена возможность подгружать настройки подключения к БД из amxmodx/sql.cfg, для этого значение квара
+		* Добавлена возможность подгружать настройки подключения к БД из amxmodx/configs/sql.cfg, для этого значение квара
 			bg_sv_sql_host необходимо изменить на "sql.cfg" (идея SKAJIbnEJIb)
 		* Добавлена очистка устаревших записей в таблицах, раз в сессию запуска сервера (идея SKAJIbnEJIb)
 		* Квару bg_sv_min_ban_time добавлена поддержка новой ожидаемой версии AMXBans RBS, автор
 			обещал выпустить обновление с большим кол-вом аргументов в форварде amxbans_ban_pre()
+	0.6 (06.09.2024):
+		* Исправление нерабочей фичи со значением "sql.cfg" для квара bg_sv_sql_host (спасибо SKAJIbnEJIb)
 */
 
-new const PLUGIN_VERSION[] = "0.5"
+new const PLUGIN_VERSION[] = "0.6"
 
 /* ----------------------- */
 
@@ -353,6 +355,8 @@ public task_InitSystem() {
 		set_task(g_eCvar[CVAR_F__WP_CACHE_PRUNE_FREQ], "task_PruneWhitepassCache", .flags = "b")
 	}
 
+	get_cvar_string("bg_sv_sql_host", g_eCvar[CVAR__HOST], charsmax(g_eCvar[CVAR__HOST]))
+
 	if(equali(g_eCvar[CVAR__HOST], "sql.cfg")) {
 		get_cvar_string("amx_sql_host", g_eCvar[CVAR__HOST], charsmax(g_eCvar[CVAR__HOST]))
 		get_cvar_string("amx_sql_user", g_eCvar[CVAR__USER], charsmax(g_eCvar[CVAR__USER]))
@@ -360,7 +364,6 @@ public task_InitSystem() {
 		get_cvar_string("amx_sql_db", g_eCvar[CVAR__DATABASE], charsmax(g_eCvar[CVAR__DATABASE]))
 	}
 	else {
-		get_cvar_string("bg_sv_sql_host", g_eCvar[CVAR__HOST], charsmax(g_eCvar[CVAR__HOST]))
 		get_cvar_string("bg_sv_sql_user", g_eCvar[CVAR__USER], charsmax(g_eCvar[CVAR__USER]))
 		get_cvar_string("bg_sv_sql_password", g_eCvar[CVAR__PASSWORD], charsmax(g_eCvar[CVAR__PASSWORD]))
 		get_cvar_string("bg_sv_sql_database", g_eCvar[CVAR__DATABASE], charsmax(g_eCvar[CVAR__DATABASE]))
