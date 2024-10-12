@@ -73,7 +73,7 @@ enum _:BG_PLAYER_DATA_STRUCT {
  *
  * @param pPlayer			Checking player index or 0 if this is call for any command
  * @param szIP					IP address to check
- * @param iMaxTries		Max check retry count (if check fails)
+ * @param iMaxTries		    Max check retry count (if check fails)
  *
  * @return						PLUGIN_HANDLED to handle request (agregate it)
  *								        PLUGIN_CONTINUE to skip request (pass to other provider)
@@ -136,6 +136,35 @@ forward BypassGuard_RequestSupervising(pPlayer, const szAsNumber[MAX_AS_LEN]);
 forward BypassGuard_PlayerCheckComplete(pPlayer, bool:bAllowConnect, const ePlayerData[BG_PLAYER_DATA_STRUCT]);
 
 /**
+ * [EXT ASN #2] Called by BypassGuard_RequestExtAsInfo() to request AS number for specified IP address.
+ *
+ * @note	Plugin that handles request MUST return PLUGIN_HANDLED
+ *
+ * @param szIP					IP address to check
+ * @param iRequestID       Request id from BypassGuard_RequestExtAsInfo()
+ * @param iMaxTries		    Max check retry count (if check fails)
+ *
+ * @return						PLUGIN_HANDLED to handle request (agregate it)
+ *								        PLUGIN_CONTINUE to skip request (pass to other provider)
+ */
+forward BypassGuard_FwdToExtAsInfoProvider(const szIP[], iRequestID, iMaxTries);
+
+/**
+ * [EXT ASN #4] Announce AS number for specified IP, that was provided through BypassGuard_SendExtAsInfo().
+ *
+ * @note Reply always be async (in other frame) like SQL_ThreadQuery.
+ *
+ * @param szIP				        Checking IP
+ * @param iRequestID           Request id from BypassGuard_RequestExtAsInfo()
+ * @param szAsNumber		AS number (can be "N/A")
+ * @param szDesc				    Provider description (can be "N/A")
+ * @param bSuccess				true if request was successful, false otherwise
+ *
+ * @noreturn
+ */
+forward BypassGuard_AnnounceExtAsInfo(const szIP[], iRequestID, const szAsNumber[MAX_AS_LEN], const szDesc[MAX_DESC_LEN], bool:bSuccess);
+
+/**
  * Sends country code and country name to main plugin as reply to BypassGuard_RequestGeoData().
  *
  * @note	Calling this with pPlayer = 0 suppose that this is instant cache-based answer for any command
@@ -156,7 +185,7 @@ native BypassGuard_SendGeoData(pPlayer, const szCode[], const szCountry[], bool:
  *
  * @param pPlayer				Checking player index or 0 if this is answer for 'bg_get_as_by_ip' command
  * @param szAsNumber		AS number
- * @param szDesc				Provider description
+ * @param szDesc				    Provider description
  * @param bSuccess				true if request was successful, false otherwise
  *
  * @noreturn
@@ -230,3 +259,30 @@ native BypassGuard_GetPlayerData(pPlayer, ePlayerData[BG_PLAYER_DATA_STRUCT]);
  * @return          true if player is checked, false otherwise
  */
 native bool:BypassGuard_IsPlayerChecked(pPlayer);
+
+/**
+ * [EXT ASN #1] Used as a bridge to request ASN info through main plugin from any ASN data provider.
+ *
+ * @note	Calling this will call forward BypassGuard_FwdToExtAsInfoProvider().
+ * @note Reply always be async (in other frame) like SQL_ThreadQuery.
+ *
+ * @param szIP				        IP without port	
+ *
+ * @return          -1 if IP is invalid; > 0 as request unique id
+ */
+native BypassGuard_RequestExtAsInfo(const szIP[]);
+
+/**
+ * [EXT ASN #3] Sends AS number to main plugin as reply to forward BypassGuard_FwdToExtAsInfoProvider().
+ *
+ * @note	Calling this will call forward BypassGuard_AnnounceExtAsInfo().
+ *
+ * @param szIP				        Checking IP
+ * @param iRequestID           Request id from BypassGuard_RequestExtAsInfo()
+ * @param szAsNumber		AS number (can be "N/A")
+ * @param szDesc				    Provider description (can be "N/A")
+ * @param bSuccess				true if request was successful, false otherwise
+ *
+ * @noreturn
+ */
+native BypassGuard_SendExtAsInfo(const szIP[], iRequestID, const szAsNumber[], const szDesc[], bool:bSuccess);
