@@ -40,9 +40,13 @@
 		* Добавлен квар 'bg_iphub_use_for_geo'
 	0.8 (16.07.2023):
 		* Бамп версии под совместимость с новой версией ядра
+	0.9 (11.10.2024):
+		* Добавлен учёт нового инструментария ядра 1.1.14 (поддержка ожидаемого обновления AmxBans RBS (бан по ASN))
+			* Добавлен квар 'bg_iphub_use_for_ext_as'
+		* Оптимизирована логика функции func_GetCheckID()
 */
 
-new const PLUGIN_VERSION[] = "0.8"
+new const PLUGIN_VERSION[] = "0.9"
 
 /* ----------------------- */
 
@@ -72,7 +76,8 @@ new const KEY_FILE_NAME[] = "iphub_api_keys.ini"
 enum _:CHECK_TYPE_ENUM {
 	CHECK_TYPE__AS,
 	CHECK_TYPE__PROXY,
-	CHECK_TYPE__GEO
+	CHECK_TYPE__GEO,
+	CHECK_TYPE__EXT_AS
 }
 
 enum _:CHECK_EXT_DATA_STRUCT {
@@ -80,7 +85,8 @@ enum _:CHECK_EXT_DATA_STRUCT {
 	CHECK_EXT_DATA__CHECK_TRIES,
 	CHECK_EXT_DATA__PLAYER_USERID,
 	CHECK_EXT_DATA__IP[MAX_IP_LENGTH],
-	CHECK_EXT_DATA__KEY_NUMBER
+	CHECK_EXT_DATA__KEY_NUMBER,
+	CHECK_EXT_DATA__EXT_AS_REQUEST_ID
 }
 
 // sizes as in iphubclient.inc (bg_provider_iphubclient.sma), see iphub_code and iphub_name
@@ -99,6 +105,7 @@ enum _:CVAR_ENUM {
 	CVAR__USE_FOR_AS,
 	CVAR__USE_FOR_PROXY,
 	CVAR__USE_FOR_GEO,
+	CVAR__USE_FOR_EXT_AS,
 	CVAR__BAN_SUSPICIOUS,
 	CVAR__CURRENT_KEY
 }
@@ -134,6 +141,12 @@ public plugin_init() {
 		.description = "Use this provider for country checking?^n\
 		Set this cvar to 0 if you use another plugin for that purpose"),
 		g_eCvar[CVAR__USE_FOR_GEO]
+	);
+	
+	bind_pcvar_num( create_cvar("bg_iphub_use_for_ext_as", "1",
+		.description = "Use this provider for getting EXT AS number?^n\
+		Set this cvar to 0 if you use another plugin for that purpose"),
+		g_eCvar[CVAR__USE_FOR_EXT_AS]
 	);
 
 	bind_pcvar_num( create_cvar("bg_iphub_ban_suspicious", "0",
@@ -188,6 +201,37 @@ public BypassGuard_RequestAsInfo(pPlayer, const szIP[], iMaxTries) {
 
 /* ----------------------- */
 
+/**
+ * [EXT ASN #2] Called by BypassGuard_RequestExtAsInfo() to request AS number for specified IP address.
+ *
+ * @note	Plugin that handles request MUST return PLUGIN_HANDLED
+ *
+ * @param szIP					IP address to check
+ * @param iMaxTries		    Max check retry count (if check fails)
+ *
+ * @return						PLUGIN_HANDLED to handle request (agregate it)
+ *								        PLUGIN_CONTINUE to skip request (pass to other provider)
+ */
+public BypassGuard_FwdToExtAsInfoProvider(const szIP[], iRequestID, iMaxTries) {
+	if(!g_eCvar[CVAR__USE_FOR_EXT_AS]) {
+		return PLUGIN_CONTINUE
+	}
+
+	new eCheckCache[CHECK_CACHE_DATA_STRUCT]
+
+	if(TrieGetArray(g_tCheckCache, szIP, eCheckCache, sizeof(eCheckCache))) {
+		BypassGuard_SendExtAsInfo( szIP, iRequestID,
+			eCheckCache[CHECK_CACHE__AS], eCheckCache[CHECK_CACHE__DESC], .bSuccess = true );
+
+		return PLUGIN_HANDLED
+	}
+
+	func_MakeRequest(0, szIP, iMaxTries, CHECK_TYPE__EXT_AS, iRequestID)
+	return PLUGIN_HANDLED
+}
+
+/* ----------------------- */
+
 public BypassGuard_RequestProxyStatus(pPlayer, const szIP[], iMaxTries) {
 	if(!g_eCvar[CVAR__USE_FOR_PROXY]) {
 		return PLUGIN_CONTINUE
@@ -228,7 +272,7 @@ public BypassGuard_RequestGeoData(pPlayer, const szIP[], iMaxTries) {
 
 /* ----------------------- */
 
-func_MakeRequest(pPlayer, const szIP[], iMaxTries, iCheckType) {
+func_MakeRequest(pPlayer, const szIP[], iMaxTries, iCheckType, iExtRequestID = 0) {
 	new iDataID = func_GetCheckID()
 
 	new eExtData[CHECK_EXT_DATA_STRUCT]
@@ -240,6 +284,7 @@ func_MakeRequest(pPlayer, const szIP[], iMaxTries, iCheckType) {
 	eExtData[CHECK_EXT_DATA__PLAYER_USERID] = get_user_userid(pPlayer) // return 0 if out of range
 	copy(eExtData[CHECK_EXT_DATA__IP], MAX_IP_LENGTH - 1, szIP)
 	eExtData[CHECK_EXT_DATA__KEY_NUMBER] = iCurrentKey
+	eExtData[CHECK_EXT_DATA__EXT_AS_REQUEST_ID] = iExtRequestID
 
 	TrieSetArray(g_tCheckExtData, fmt("%i", iDataID), eExtData, sizeof(eExtData))
 
@@ -256,14 +301,8 @@ func_MakeRequest(pPlayer, const szIP[], iMaxTries, iCheckType) {
 /* ----------------------- */
 
 func_GetCheckID() {
-	new iDataID
-
-	do {
-		iDataID = random_num(0, 10000)
-	}
-	while(TrieKeyExists(g_tCheckExtData, fmt("%i", iDataID)))
-
-	return iDataID
+	static iDataID
+	return ++iDataID
 }
 
 /* -------------------- */
@@ -392,6 +431,11 @@ func_AgregateCheckResponse(pPlayer, iDataID, eExtData[CHECK_EXT_DATA_STRUCT]) {
 	grip_destroy_json_value(hResponceBody)
 
 	if(!pPlayer) {
+		if(eExtData[CHECK_EXT_DATA__TYPE] == CHECK_TYPE__EXT_AS) {
+			BypassGuard_SendExtAsInfo( eExtData[CHECK_EXT_DATA__IP], eExtData[CHECK_EXT_DATA__EXT_AS_REQUEST_ID],
+				eCheckCache[CHECK_CACHE__AS], eCheckCache[CHECK_CACHE__DESC], .bSuccess = true );
+		}
+	
 		return
 	}
 
@@ -416,14 +460,19 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT], iDataID) {
 	static const szCheckType[CHECK_TYPE_ENUM][] = {
 		"AS number",
 		"proxy status",
-		"country info"
+		"country info",
+		"EXT AS number"
 	}
 
-	if(!pPlayer || --eExtData[CHECK_EXT_DATA__CHECK_TRIES] == 0) {
+	if((!pPlayer && eExtData[CHECK_EXT_DATA__TYPE] != CHECK_TYPE__EXT_AS) || --eExtData[CHECK_EXT_DATA__CHECK_TRIES] == 0) {
 		BypassGuard_LogError( fmt( "[Error] Can't get %s for IP '%s'",
 			szCheckType[ eExtData[CHECK_EXT_DATA__TYPE] ], eExtData[CHECK_EXT_DATA__IP] ) );
 
-		if(pPlayer) {
+		if(eExtData[CHECK_EXT_DATA__TYPE] == CHECK_TYPE__EXT_AS) {
+			BypassGuard_SendExtAsInfo( eExtData[CHECK_EXT_DATA__IP], 
+				eExtData[CHECK_EXT_DATA__EXT_AS_REQUEST_ID], _NA_, _NA_, .bSuccess = false );
+		}
+		else if(pPlayer) {
 			switch(eExtData[CHECK_EXT_DATA__TYPE]) {
 				case CHECK_TYPE__AS: {
 					BypassGuard_SendAsInfo(pPlayer, .szAsNumber = "", .szDesc = "", .bSuccess = false)
@@ -435,7 +484,7 @@ bool:func_TryRetry(pPlayer, eExtData[CHECK_EXT_DATA_STRUCT], iDataID) {
 					BypassGuard_SendGeoData(pPlayer, _NA_, _NA_, .bSuccess = false)
 				}
 			}
-		}
+		}	
 
 		return false
 
