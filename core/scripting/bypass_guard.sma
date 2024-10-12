@@ -189,9 +189,15 @@
 			* Добавлен квар bypass_guard_allow_by_stats
 			* Добавлен квар bypass_guard_stats_type
 			* bypass_guard.inc: в энумерацию ALLOW_TYPE_ENUM добавлен элемент ALLOW_TYPE__STATS_IMMUNITY
+	1.1.14 (11.10.2024):
+		* Добавлена поддержка ожидаемого обновления AmxBans RBS (бан по ASN)
+			* Добавлен натив BypassGuard_RequestExtAsInfo
+			* Добавлен натив BypassGuard_SendExtAsInfo
+			* Добавлен фовард BypassGuard_FwdToExtAsInfoProvider
+			* Добавлен форвард BypassGuard_AnnounceExtAsInfo
 */
 
-new const PLUGIN_VERSION[] = "1.0.10"
+new const PLUGIN_VERSION[] = "1.1.14"
 
 /* ----------------------- */
 
@@ -248,6 +254,7 @@ new const LOG_NAME[LOG_ENUM][] = {
 #define ClearBit(%0,%1) (%0 &= ~(1 << %1))
 
 #define MAX_COMMENT_LEN 48
+#define TASKID__EXT_AS_INFO 1337
 
 /* --- */
 
@@ -281,6 +288,11 @@ enum _:AS_DATA_STRUCT {
 enum _:AS_TRIE_STRUCT {
 	AST__STATE,
 	AST__ARRAY_POS
+}
+
+enum _:EXT_AS_INFO_DATA_STRUCT {
+	EXT_AS_INFO_DATA__IP[MAX_IP_LENGTH],
+	EXT_AS_INFO_DATA__REQUEST_ID
 }
 
 enum _:PCVAR_ENUM {
@@ -343,6 +355,8 @@ new bool:g_bCheckComplete[MAX_PLAYERS + 1]
 new g_ePlayerData[BG_PLAYER_DATA_STRUCT]
 new g_szSvStatus[MAX_PLAYERS + 1][MAX_SV_STATUS_LEN]
 new bool:g_bSvAllowConnect[MAX_PLAYERS + 1]
+new g_fwdFwdToExtAsInfoProvider
+new g_fwdAnnouceExtAsInfo
 
 /* -------------------- */
 
@@ -492,6 +506,9 @@ public plugin_cfg() {
 	g_fwdRequestSupervising = CreateMultiForward("BypassGuard_RequestSupervising", ET_STOP, FP_CELL, FP_STRING)
 
 	g_fwdPlayerCheckComplete = CreateMultiForward("BypassGuard_PlayerCheckComplete", ET_IGNORE, FP_CELL, FP_CELL, FP_ARRAY)
+	
+	g_fwdFwdToExtAsInfoProvider = CreateMultiForward("BypassGuard_FwdToExtAsInfoProvider", ET_STOP, FP_STRING, FP_CELL, FP_CELL)
+	g_fwdAnnouceExtAsInfo = CreateMultiForward("BypassGuard_AnnounceExtAsInfo", ET_IGNORE, FP_STRING, FP_CELL, FP_STRING, FP_STRING, FP_CELL)
 
 	/* --- */
 
@@ -2501,6 +2518,8 @@ public plugin_natives() {
 	register_native("BypassGuard_GetPluginFolderName", "_BypassGuard_GetPluginFolderName")
 	register_native("BypassGuard_GetPlayerData", "_BypassGuard_GetPlayerData")
 	register_native("BypassGuard_IsPlayerChecked", "_BypassGuard_IsPlayerChecked")
+	register_native("BypassGuard_RequestExtAsInfo", "_BypassGuard_RequestExtAsInfo")
+	register_native("BypassGuard_SendExtAsInfo", "_BypassGuard_SendExtAsInfo")
 }
 
 /* -------------------- */
@@ -2679,6 +2698,70 @@ public _BypassGuard_GetPlayerData(iPluginID, iParamCount) {
 public bool:_BypassGuard_IsPlayerChecked(iPluginID, iParamCount) {
 	enum { player = 1 }
 	return g_bCheckComplete[ get_param(player) ]
+}
+
+/* -------------------- */
+
+public _BypassGuard_RequestExtAsInfo(iPluginID, iParamCount) {
+	enum { ip = 1 }
+	
+	static eExtAsInfoData[EXT_AS_INFO_DATA_STRUCT]
+	
+	get_string(ip, eExtAsInfoData[EXT_AS_INFO_DATA__IP], chx(eExtAsInfoData[EXT_AS_INFO_DATA__IP]))
+	
+	if(!IsIpValid(eExtAsInfoData[EXT_AS_INFO_DATA__IP])) {
+		return -1
+	}
+	
+	eExtAsInfoData[EXT_AS_INFO_DATA__REQUEST_ID]++
+	
+	set_task(0.1, "task_FwdToExtAsInfoProvider", TASKID__EXT_AS_INFO, eExtAsInfoData, sizeof(eExtAsInfoData))
+	
+	return eExtAsInfoData[EXT_AS_INFO_DATA__REQUEST_ID]
+}
+
+/* -------------------- */
+
+public task_FwdToExtAsInfoProvider(const eExtAsInfoData[EXT_AS_INFO_DATA_STRUCT]) {
+	new iRet; ExecuteForward(g_fwdFwdToExtAsInfoProvider, iRet, eExtAsInfoData[EXT_AS_INFO_DATA__IP], eExtAsInfoData[EXT_AS_INFO_DATA__REQUEST_ID], g_eCvar[CVAR__MAX_CHECK_TRIES])
+	
+	if(iRet) {
+		return
+	}
+		
+	log_to_file(g_eLogFile[LOG__ERROR], "[Error] No one handle 'BypassGuard_FwdToExtAsInfoProvider' request! Check your setup!")
+		
+	ExecuteForward(g_fwdAnnouceExtAsInfo, _, eExtAsInfoData[EXT_AS_INFO_DATA__IP], eExtAsInfoData[EXT_AS_INFO_DATA__REQUEST_ID], _NA_, _NA_, false)
+}
+
+/* -------------------- */
+
+public _BypassGuard_SendExtAsInfo(iPluginID, iParamCount) {
+	enum { ip = 1, request_id, as, desc, success }
+	
+	static szIP[MAX_IP_LENGTH], szAsNumber[MAX_AS_LEN], szDesc[MAX_DESC_LEN]
+	get_string(ip, szIP, chx(szIP))
+	
+	new iSuccess = get_param(success)
+	
+	if(!iSuccess) {
+		szAsNumber = _NA_
+		szDesc = _NA_
+	}
+	else {
+		get_string(as, szAsNumber, chx(szAsNumber))
+		get_string(desc, szDesc, chx(szDesc))
+		
+		if(!szAsNumber[0]) {
+			szAsNumber = _NA_
+		}
+		
+		if(!szDesc[0]) {
+			szDesc = _NA_
+		}
+	}
+	
+	ExecuteForward(g_fwdAnnouceExtAsInfo, _, szIP, get_param(request_id), szAsNumber, szDesc, iSuccess)
 }
 
 /* -------------------- */
