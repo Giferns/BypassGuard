@@ -9,3 +9,93 @@ BG__KICK_REASON_ACCESS = Access from your network is restricted. Access can be o
 BG__URL = Link to forum topic: https://YourForum.ru/threads/11314/
 BG__KICK_REASON_CHECK_FAILED = Access check failed! Try again after a minute...
 BG__YOUR_NAME_STEAMID_AND_IP = Your nick, SteamID, and IP:
+
+[bg]
+BG__KICK_REASON_ACCESS = Достъпът от вашата мрежа е ограничен. Достъпът може да бъде получен на форума YourForum.ru, връзка към темата във вашата конзола!
+BG__URL = Линк към тема във форума: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Проверката за достъп е неуспешна! Опитайте отново след минута...
+BG__YOUR_NAME_STEAMID_AND_IP = Вашият ник, SteamID и IP:
+
+[cz]
+BG__KICK_REASON_ACCESS = Přístup z vaší sítě je omezen. Přístup lze získat na fóru YourForum.ru, odkaz na téma ve vaší konzoli!
+BG__URL = Odkaz na téma fóra: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Kontrola přístupu selhala! Zkuste to znovu za minutu...
+BG__YOUR_NAME_STEAMID_AND_IP = Váš nick, SteamID a IP:
+
+[pl]
+BG__KICK_REASON_ACCESS = Dostęp z Twojej sieci jest ograniczony. Dostęp można uzyskać na forum YourForum.ru, link do tematu w Twojej konsoli!
+BG__URL = Link do tematu forum: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Kontrola dostępu nie powiodła się! Spróbuj ponownie za minutę...
+BG__YOUR_NAME_STEAMID_AND_IP = Twój nick, SteamID i IP:
+
+[ro]
+BG__KICK_REASON_ACCESS = Accesul din rețeaua dvs. este restricționat. Accesul se poate obține pe forumul YourForum.ru, un link către subiectul din consola dumneavoastră!
+BG__URL = Link către subiectul forumului: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Verificarea accesului a eșuat! Încercați din nou după un minut...
+BG__YOUR_NAME_STEAMID_AND_IP = pseudonimul, SteamID și IP:
+
+[sr]
+BG__KICK_REASON_ACCESS = Приступ са ваше мреже је ограничен. Приступ се може добити на форуму ИоурФорум.ру, линк до теме у вашој конзоли!
+BG__URL = Линк до теме форума: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Провера приступа није успела! Покушајте поново после минут...
+BG__YOUR_NAME_STEAMID_AND_IP = Ваш надимак, SteamID и IP:
+
+[tr]
+BG__KICK_REASON_ACCESS = Ağınızdan erişim kısıtlanmıştır. Erişim, konsolunuzdaki konuya bir bağlantı olan YourForum.ru forumundan elde edilebilir!
+BG__URL = Forum konusuna bağlantı: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Erişim kontrolü başarısız oldu! Bir dakika sonra tekrar deneyin...
+BG__YOUR_NAME_STEAMID_AND_IP = Nickiniz, SteamID'niz ve IP'niz:
+
+[ua]
+BG__KICK_REASON_ACCESS = Доступ із вашої мережі обмежено. Доступ можна отримати на форумі YourForum.ru, посилання на тему у вашій консолі!
+BG__URL = Посилання на тему форуму: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Не вдалося перевірити доступ! Повторіть спробу через хвилину...
+BG__YOUR_NAME_STEAMID_AND_IP = Ваш нік, SteamID та IP:
+
+[kk]
+BG__KICK_REASON_ACCESS = Сіздің желіңізден кіру шектелген. Кіруді YourForum.ru форумында алуға болады, консольдегі тақырыпқа сілтеме!
+BG__URL = Форум тақырыбына сілтеме: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Қол жеткізуді тексеру сәтсіз аяқталды! Бір минуттан кейін әрекетті қайталаңыз...
+BG__YOUR_NAME_STEAMID_AND_IP = Сіздің лақап, SteamID және IP:
+
+[de]
+BG__KICK_REASON_ACCESS = Der Zugriff von Ihrem Netzwerk ist eingeschränkt. Zugriff erhalten Sie über das Forum YourForum.ru, einen Link zum Thema in Ihrer Konsole!
+BG__URL = Link zum Forumthema: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Zugriffsprüfung fehlgeschlagen! Versuchen Sie es in einer Minute erneut...
+BG__YOUR_NAME_STEAMID_AND_IP = Ihr Spitzname, Ihre SteamID und Ihre IP:
+
+[es]
+BG__KICK_REASON_ACCESS = El acceso desde tu red está restringido. Puedes obtener acceso en el foro YourForum.ru, un enlace al tema en tu consola.
+BG__URL = Enlace al tema del foro: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = ¡Error en la comprobación de acceso! Vuelve a intentarlo después de un minuto...
+BG__YOUR_NAME_STEAMID_AND_IP = Tu apodo, SteamID e IP:
+
+[fr]
+BG__KICK_REASON_ACCESS = L'accès depuis votre réseau est restreint. L'accès peut être obtenu sur le forum YourForum.ru, un lien vers le sujet dans votre console !
+BG__URL = Lien vers le sujet du forum : https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = La vérification d'accès a échoué ! Réessayez après une minute...
+BG__YOUR_NAME_STEAMID_AND_IP = Votre pseudo, SteamID et IP :
+
+[it]
+BG__KICK_REASON_ACCESS = L'accesso dalla tua rete è limitato. L'accesso può essere ottenuto sul forum YourForum.ru, un collegamento all'argomento nella tua console!
+BG__URL = Collegamento all'argomento del forum: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Controllo di accesso fallito! Riprova dopo un minuto...
+BG__YOUR_NAME_STEAMID_AND_IP = Il tuo nick, SteamID e IP:
+
+[pt]
+BG__KICK_REASON_ACCESS = O acesso da sua rede é restrito. O acesso pode ser obtido no fórum YourForum.ru, link para o tema na sua consola!
+BG__URL = Link para o tópico do fórum: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = Falha na verificação de acesso! Tente novamente passado um minuto...
+BG__YOUR_NAME_STEAMID_AND_IP = O seu nick, SteamID e IP:
+
+[bn]
+BG__KICK_REASON_ACCESS = আপনার নেটওয়ার্ক থেকে অ্যাক্সেস সীমাবদ্ধ। আপনার কনসোলে বিষয়ের লিঙ্ক YourForum.ru ফোরামে অ্যাক্সেস পাওয়া যেতে পারে!
+BG__URL = ফোরাম বিষয়ের লিঙ্ক: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = অ্যাক্সেস চেক ব্যর্থ হয়েছে! এক মিনিট পর আবার চেষ্টা করুন...
+BG__YOUR_NAME_STEAMID_AND_IP = আপনার নিক, SteamID, এবং IP:
+
+[hi]
+BG__KICK_REASON_ACCESS = आपके नेटवर्क से एक्सेस प्रतिबंधित है। एक्सेस YourForum.ru फ़ोरम पर प्राप्त किया जा सकता है, आपके कंसोल में विषय का लिंक!
+BG__URL = फ़ोरम विषय का लिंक: https://YourForum.ru/threads/11314/
+BG__KICK_REASON_CHECK_FAILED = एक्सेस चेक विफल! एक मिनट बाद फिर से प्रयास करें...
+BG__YOUR_NAME_STEAMID_AND_IP = आपका उपनाम, स्टीमआईडी और आईपी:
