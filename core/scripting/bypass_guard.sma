@@ -390,7 +390,7 @@ RegCvars() {
 
 	/* --- */
 
-	bind_pcvar_num( create_cvar("bypass_guard_allow_steam", "1",
+	bind_pcvar_num( create_cvar("bypass_guard_allow_steam", "0",
 		.description = "Allow steam players to join without checks?"), g_eCvar[CVAR__ALLOW_STEAM] );
 
 	bind_pcvar_num( create_cvar("bypass_guard_country_check_mode", "1",
