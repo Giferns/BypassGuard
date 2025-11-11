@@ -16,6 +16,9 @@
 - Set up API keys in `addons/amxmodx/configs/bypass_guard/iphub_api_keys.ini`
 - Install `bg_supervisor.amxx`
 - Set up the configuration file `addons/amxmodx/configs/plugins/plugin-bg_supervisor.cfg`
+- Start or restart server for the first run of newly installed plugins
+- Type `amxx plugins` into server console and check plugins status, that sound be `running` for all three plugins
+- Check `amxmodx/logs` and `amxmodx/logs/bypass_guard` for the presence of error logs
 
 # Console commands
 
