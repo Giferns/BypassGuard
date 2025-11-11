@@ -1,7 +1,7 @@
 # FAQ
 
 Q: What is it?
-<br>A: This is a comprehensive anti-ban-bypass system. Players are checked for their country, proxy/VPN, and local provider bans (ASN bans).
+<br>A: This is a comprehensive anti-ban-bypass system. Players are checked for their country, proxy/VPN, and internet provider local bans (ASN bans).
 
 Q: Who is this system for?
 <br>A: For advanced server administrators
