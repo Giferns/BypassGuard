@@ -1,3 +1,17 @@
+# FAQ
+
+Q: What is it?
+<br>A: This is a comprehensive anti-ban-bypass system. Players are checked for their country, proxy/VPN, and local provider bans (ASN bans).
+
+Q: Who is this system for?
+<br>A: For advanced server administrators
+
+Q: Is the system fully automatic?
+<br>A: Yes and no. It also has manual control tools, since automatic protection can be bypassed if you know how to do it.
+
+Q: Does the system give 100% results?
+<br>A: No
+
 # Requirements
 
 - [AMX Mod X](https://github.com/alliedmodders/amxmodx) 1.9 or 1.10 ([Snapshots](https://www.amxmodx.org/downloads-new.php))
