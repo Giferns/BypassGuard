@@ -70,6 +70,7 @@
 	Garey, AleXr, wopox1337 за версию 'gRIP' под Windows: https://dev-cs.ru/threads/2789/post-65613
 	SKAJIbnEJIb за конструктивную критику и идеи
 	the_hunter за модуль IPHubClient
+	dreamxleo за самостоятельное оформление ресурса (заимствую описание, т.к. оригинал утерян)
 */
 
 /* История обновлений:
